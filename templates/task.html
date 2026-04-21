@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="task-display" id="task-container">
+    <!-- Stimulus will be injected here -->
+    <p id="task-text">Inicjalizacja badania...</p>
+</div>
+<div class="task-overlay">
+    <p class="results-msg">Pozostało czasu: <span id="timer">30</span>s</p>
+</div>
+
+<style>
+    .task-overlay {
+        position: fixed;
+        bottom: 2rem;
+        left: 0;
+        right: 0;
+        text-align: center;
+        z-index: 100;
+        pointer-events: none;
+    }
+    .stimulus-image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        animation: fadeIn 1s ease-in;
+    }
+</style>
+
+<script>
+    const wrapper = document.querySelector('.app-wrapper');
+    if (wrapper) wrapper.classList.add('is-task');
+
+    const container = document.getElementById('task-container');
+    const timerText = document.getElementById('timer');
+    let timeLeft = 30;
+
+    // Mixed stimuli: colors and high-quality placeholder images (nature, abstract, architecture)
+    const stimuli = [
+        { type: 'color', value: '#ff0000' },
+        { type: 'image', value: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&q=80' }, // Mountains
+        { type: 'color', value: '#0000ff' },
+        { type: 'image', value: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1920&q=80' }, // Abstract Blue
+        { type: 'color', value: '#00ff00' },
+        { type: 'image', value: 'https://images.unsplash.com/photo-1441974231531-c6227db76b6e?auto=format&fit=crop&w=1920&q=80' }, // Forest (Corrected URL)
+        { type: 'color', value: '#ffff00' },
+        { type: 'image', value: 'https://images.unsplash.com/photo-1511447333015-45b65e60f6d5?auto=format&fit=crop&w=1920&q=80' }  // Deep Space
+    ];
+
+    let currentStimulusIndex = 0;
+
+    function showNextStimulus() {
+        const stimulus = stimuli[currentStimulusIndex % stimuli.length];
+        container.innerHTML = '';
+        
+        if (stimulus.type === 'color') {
+            container.style.backgroundColor = stimulus.value;
+            container.innerHTML = '<p id="task-text" style="color: white; opacity: 0.3;">Skup wzrok na kolorze</p>';
+        } else {
+            container.style.backgroundColor = '#000';
+            const img = document.createElement('img');
+            img.src = stimulus.value;
+            img.className = 'stimulus-image';
+            container.appendChild(img);
+        }
+        currentStimulusIndex++;
+    }
+
+    // Initial stimulus
+    showNextStimulus();
+
+    // Change stimulus every 4 seconds
+    const stimulusInterval = setInterval(showNextStimulus, 4000);
+
+    const countdown = setInterval(() => {
+        timeLeft--;
+        timerText.textContent = timeLeft;
+        if (timeLeft <= 0) {
+            clearInterval(countdown);
+            clearInterval(stimulusInterval);
+            if (wrapper) wrapper.classList.remove('is-task');
+            window.location.href = "{{ url_for('results') }}";
+        }
+    }, 1000);
+</script>
+{% endblock %}
