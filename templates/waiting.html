@@ -3,20 +3,31 @@
 {% block content %}
 <h2 class="animate-fade">Przygotujcie się</h2>
 <div class="hero-container">
-    <p class="results-msg">Zadanie rozpocznie się za chwilę. Proszę założyć zestawy EEG i patrzeć na ekran.</p>
-    <div id="countdown" class="countdown animate-scale">5</div>
+    <p class="results-msg">Zadanie rozpocznie się po naciśnięciu przycisku. Proszę założyć zestawy EEG i patrzeć na ekran.</p>
+    <div id="countdown-wrapper" style="display: none;">
+        <div id="countdown" class="countdown animate-scale">5</div>
+    </div>
+    <button id="start-btn" class="animate-slide-2" style="margin-top: 2rem;">ROZPOCZNIJ BADANIE</button>
 </div>
 
 <script>
-    let count = 5;
+    const startBtn = document.getElementById('start-btn');
+    const countdownWrapper = document.getElementById('countdown-wrapper');
     const counter = document.getElementById('countdown');
-    const timer = setInterval(() => {
-        count--;
-        counter.textContent = count;
-        if (count <= 0) {
-            clearInterval(timer);
-            window.location.href = "{{ url_for('task') }}";
-        }
-    }, 1000);
+    
+    startBtn.addEventListener('click', () => {
+        startBtn.style.display = 'none';
+        countdownWrapper.style.display = 'block';
+        
+        let count = 5;
+        const timer = setInterval(() => {
+            count--;
+            counter.textContent = count;
+            if (count <= 0) {
+                clearInterval(timer);
+                window.location.href = "{{ url_for('task') }}";
+            }
+        }, 1000);
+    });
 </script>
 {% endblock %}
