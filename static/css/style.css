@@ -78,6 +78,11 @@ body {
     display: flex;
     justify-content: center;
     align-items: center;
+    overflow: hidden;
+}
+
+:has(.app-wrapper.is-task) {
+    overflow: hidden;
 }
 
 .app-wrapper.is-task header,
@@ -293,5 +298,109 @@ footer {
     .flex-row {
         flex-direction: column;
         gap: 3rem;
+    }
+}
+
+/* Candy Mode Overrides */
+.candy-mode {
+    --bg-color: #fff0f5; /* Lavender Blush */
+    --card-bg: #ffffff;
+    --text-color: #ff1493; /* Deep Pink */
+    --accent-color: #ff69b4; /* Hot Pink */
+    --secondary-text: #ff8c00; /* Dark Orange */
+    --border-color: #ffb6c1; /* Light Pink */
+    --input-focus: #ff1493;
+}
+
+.candy-mode body {
+    background-image: radial-gradient(circle at 50% -20%, #ffc0cb 0%, var(--bg-color) 45%);
+    font-family: 'Inter', 'Rounded Mplus 1c', sans-serif;
+}
+
+.candy-mode .app-wrapper {
+    border-radius: 40px;
+    box-shadow: 0 25px 50px -12px rgba(255, 105, 180, 0.4);
+    border: 4px solid #ffb6c1;
+    box-sizing: border-box;
+}
+
+.candy-mode .app-wrapper.is-task {
+    border: none;
+    border-radius: 0;
+}
+
+.candy-mode h2 {
+    color: #ff1493;
+    font-weight: 700;
+}
+
+.candy-mode h2::before, .candy-mode h2::after {
+    content: " 💖 ";
+}
+
+.candy-mode button {
+    background: linear-gradient(135deg, #ff69b4 0%, #ff1493 100%);
+    color: white;
+    border-radius: 50px;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    box-shadow: 0 10px 20px rgba(255, 20, 147, 0.3);
+}
+
+.candy-mode input, .candy-mode select {
+    border-bottom: 2px solid #ffb6c1;
+    color: #ff1493;
+}
+
+.candy-mode .countdown {
+    color: #ff69b4;
+    text-shadow: 0 0 20px rgba(255, 105, 180, 0.5);
+}
+
+.candy-mode .results-score {
+    background: linear-gradient(to bottom, #ff69b4, #ff1493);
+    -webkit-background-clip: text;
+}
+
+.candy-mode .sound-pulse {
+    background: #ff69b4;
+    box-shadow: 0 0 0 0 rgba(255, 105, 180, 0.7);
+}
+
+@keyframes candyPulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 105, 180, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 40px rgba(255, 105, 180, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 105, 180, 0); }
+}
+
+.candy-mode .sound-pulse {
+    animation: candyPulse 1.5s infinite;
+}
+
+/* Floating Hearts Animation */
+.floating-heart {
+    position: fixed;
+    bottom: -50px;
+    font-size: 2rem;
+    pointer-events: none;
+    z-index: 1000;
+    animation: floatHeart linear forwards;
+    opacity: 0;
+}
+
+@keyframes floatHeart {
+    0% {
+        transform: translateY(0) rotate(0deg);
+        opacity: 0;
+    }
+    10% {
+        opacity: 0.8;
+    }
+    90% {
+        opacity: 0.8;
+    }
+    100% {
+        transform: translateY(-110vh) rotate(360deg);
+        opacity: 0;
     }
 }

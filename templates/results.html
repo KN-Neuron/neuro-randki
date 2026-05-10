@@ -5,6 +5,7 @@
 <div class="hero-container">
     <div class="results-score animate-scale">{{ score }}%</div>
     <div class="results-msg animate-fade">
+        <strong>{{ nick1 }} & {{ nick2 }}</strong><br>
         {% if score > 80 %}
             Idealna para. Wasze fale mózgowe nadają na tych samych częstotliwościach.
         {% elif score > 50 %}
@@ -13,6 +14,99 @@
             Może być lepiej. Spróbujcie skupić się bardziej na sobie nawzajem.
         {% endif %}
     </div>
+
+    <!-- Leaderboard Section -->
+    <div class="leaderboard-container animate-slide-1">
+        <h3>Ranking Par</h3>
+        <table class="leaderboard-table">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Para</th>
+                    <th>Wynik</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in leaderboard %}
+                <tr {% if entry.nick1 == nick1 and entry.nick2 == nick2 and entry.score == score %}class="current-session"{% endif %}>
+                    <td>{{ loop.index }}</td>
+                    <td>{{ entry.nick1 }} + {{ entry.nick2 }}</td>
+                    <td>{{ entry.score }}%</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
-<button onclick="window.location.href='{{ url_for('register') }}'" class="animate-slide-3">ZAGRAJ PONOWNIE</button>
+
+<style>
+    .leaderboard-container {
+        margin-top: 4rem;
+        width: 100%;
+        max-width: 600px;
+        background: rgba(255, 255, 255, 0.03);
+        padding: 2rem;
+        border-radius: 16px;
+        border: 1px solid var(--border-color);
+    }
+
+    .leaderboard-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 1rem;
+        font-size: 0.9rem;
+    }
+
+    .leaderboard-table th {
+        text-align: left;
+        padding: 0.75rem;
+        color: var(--secondary-text);
+        border-bottom: 1px solid var(--border-color);
+        text-transform: uppercase;
+        font-size: 0.7rem;
+        letter-spacing: 0.1em;
+    }
+
+    .leaderboard-table td {
+        padding: 1rem 0.75rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+
+    .current-session {
+        background: rgba(99, 102, 241, 0.1);
+        color: var(--accent-color);
+        font-weight: 600;
+    }
+
+    .current-session td {
+        border-bottom-color: var(--accent-color);
+    }
+</style>
+
+<button onclick="window.location.href='{{ url_for('register') }}'" class="animate-slide-3" style="margin-top: 3rem;">ZAGRAJ PONOWNIE</button>
+
+<script>
+    if (localStorage.getItem('candyMode') === 'true') {
+        function createHeart() {
+            const heart = document.createElement('div');
+            heart.className = 'floating-heart';
+            heart.innerText = ['💖', '💗', '💓', '💕', '✨'][Math.floor(Math.random() * 5)];
+            heart.style.left = Math.random() * 100 + 'vw';
+            heart.style.animationDuration = (Math.random() * 3 + 3) + 's';
+            heart.style.fontSize = (Math.random() * 1.5 + 1) + 'rem';
+            
+            document.body.appendChild(heart);
+            
+            setTimeout(() => {
+                heart.remove();
+            }, 6000);
+        }
+
+        // Spawn hearts periodically
+        const heartInterval = setInterval(createHeart, 300);
+        
+        // Stop spawning after 10 seconds to save performance
+        setTimeout(() => clearInterval(heartInterval), 10000);
+    }
+</script>
 {% endblock %}

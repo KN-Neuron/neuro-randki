@@ -1,6 +1,10 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<div class="mode-toggle-container animate-fade" style="text-align: right; margin-bottom: 1rem;">
+    <button id="candy-toggle" style="padding: 0.5rem 1rem; font-size: 0.7rem; display: inline-block; margin: 0; width: auto;">Tryb Cukierkowy 💖</button>
+</div>
+
 <h2 class="animate-fade">Rejestracja graczy</h2>
 <form method="post">
     <div class="flex-row">
@@ -10,19 +14,6 @@
                 <label>Nickname:</label>
                 <input type="text" name="nick1" required placeholder="np. CyberPunk">
             </div>
-            <div class="form-group">
-                <label>Wiek:</label>
-                <input type="number" name="age1" placeholder="opcjonalnie">
-            </div>
-            <div class="form-group">
-                <label>Płeć:</label>
-                <select name="gender1">
-                    <option value="">Wybierz...</option>
-                    <option value="M">Mężczyzna</option>
-                    <option value="K">Kobieta</option>
-                    <option value="I">Inna</option>
-                </select>
-            </div>
         </div>
         <div class="user-form animate-slide-2">
             <h3>Gracz 2</h3>
@@ -30,21 +21,28 @@
                 <label>Nickname:</label>
                 <input type="text" name="nick2" required placeholder="np. BioHacker">
             </div>
-            <div class="form-group">
-                <label>Wiek:</label>
-                <input type="number" name="age2" placeholder="opcjonalnie">
-            </div>
-            <div class="form-group">
-                <label>Płeć:</label>
-                <select name="gender2">
-                    <option value="">Wybierz...</option>
-                    <option value="M">Mężczyzna</option>
-                    <option value="K">Kobieta</option>
-                    <option value="I">Inna</option>
-                </select>
-            </div>
         </div>
     </div>
     <button type="submit" class="animate-slide-3">ROZPOCZNIJ TEST</button>
 </form>
+
+<script>
+    const candyBtn = document.getElementById('candy-toggle');
+    
+    function updateBtn() {
+        const isCandy = localStorage.getItem('candyMode') === 'true';
+        candyBtn.innerText = isCandy ? 'Tryb Mroczny 🌙' : 'Tryb Cukierkowy 💖';
+    }
+
+    candyBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        const isCandy = localStorage.getItem('candyMode') === 'true';
+        const newVal = !isCandy;
+        localStorage.setItem('candyMode', newVal);
+        document.documentElement.classList.toggle('candy-mode', newVal);
+        updateBtn();
+    });
+
+    updateBtn();
+</script>
 {% endblock %}
