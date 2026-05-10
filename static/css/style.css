@@ -89,8 +89,8 @@ body {
 
 .app-wrapper.is-task main {
     flex: none;
-    width: 66vw;  /* 2/3 of screen width */
-    height: 66vh; /* 2/3 of screen height */
+    width: 90vw;  /* 90% of screen width */
+    height: 90vh; /* 90% of screen height */
     display: flex;
 }
 
