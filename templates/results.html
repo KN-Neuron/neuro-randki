@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2 class="animate-fade">Wynik dopasowania</h2>
+<div class="hero-container">
+    <div class="results-score animate-scale">{{ score }}%</div>
+    <div class="results-msg animate-fade">
+        {% if score > 80 %}
+            Idealna para. Wasze fale mózgowe nadają na tych samych częstotliwościach.
+        {% elif score > 50 %}
+            Dobre dopasowanie. Jest między Wami chemia... a przynajmniej fizyka.
+        {% else %}
+            Może być lepiej. Spróbujcie skupić się bardziej na sobie nawzajem.
+        {% endif %}
+    </div>
+</div>
+<button onclick="window.location.href='{{ url_for('register') }}'" class="animate-slide-3">ZAGRAJ PONOWNIE</button>
+{% endblock %}

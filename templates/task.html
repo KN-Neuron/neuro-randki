@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="task-display" id="task-container">
+    <!-- Stimulus will be injected here -->
+    <p id="task-text">Inicjalizacja badania...</p>
+</div>
+
+<style>
+    .stimulus-image, .stimulus-color {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        animation: fadeInSimple 0.8s ease-out;
+    }
+
+    @keyframes fadeInSimple {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+</style>
+
+<script>
+    const wrapper = document.querySelector('.app-wrapper');
+    if (wrapper) wrapper.classList.add('is-task');
+
+    const container = document.getElementById('task-container');
+
+    const stimuli = [
+        { type: 'color', value: '#ff0000' },
+        { type: 'image', value: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&q=80' }, // Mountains
+        { type: 'color', value: '#0000ff' },
+        { type: 'image', value: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1920&q=80' }, // Abstract Blue
+        { type: 'color', value: '#00ff00' }
+    ];
+
+    let currentStimulusIndex = 0;
+
+    function showNextStimulus() {
+        const stimulus = stimuli[currentStimulusIndex];
+        container.innerHTML = '';
+        container.style.backgroundColor = '#000';
+        
+        if (stimulus.type === 'color') {
+            const colorDiv = document.createElement('div');
+            colorDiv.className = 'stimulus-color';
+            colorDiv.style.backgroundColor = stimulus.value;
+            container.appendChild(colorDiv);
+        } else {
+            const img = document.createElement('img');
+            img.src = stimulus.value;
+            img.className = 'stimulus-image';
+            container.appendChild(img);
+        }
+    }
+
+    function runSequence() {
+        showNextStimulus();
+
+        // Every stimulus shows for exactly 3 seconds
+        setTimeout(() => {
+            if (currentStimulusIndex === stimuli.length - 1) {
+                // Final stimulus finished, go to results
+                if (wrapper) wrapper.classList.remove('is-task');
+                window.location.href = "{{ url_for('results') }}";
+            } else {
+                // Start countdown for next stimulus
+                startCountdown(3);
+            }
+        }, 3000);
+    }
+
+    function startCountdown(seconds) {
+        if (seconds > 0) {
+            container.style.backgroundColor = '#000';
+            container.innerHTML = `<div class="countdown">${seconds}</div>`;
+            setTimeout(() => startCountdown(seconds - 1), 1000);
+        } else {
+            currentStimulusIndex++;
+            runSequence();
+        }
+    }
+
+    // Initial start
+    runSequence();
+</script>
+{% endblock %}
