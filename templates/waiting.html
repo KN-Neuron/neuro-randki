@@ -3,11 +3,16 @@
 {% block content %}
 <h2 class="animate-fade">Przygotujcie się</h2>
 <div class="hero-container">
-    <p class="results-msg">Zadanie rozpocznie się po naciśnięciu przycisku. Proszę założyć zestawy EEG i patrzeć na ekran.</p>
+    <p class="waiting-text">Zadanie rozpocznie się po naciśnięciu przycisku.<br>Proszę założyć zestawy EEG i patrzeć na ekran.</p>
     <div id="countdown-wrapper" style="display: none;">
         <div id="countdown" class="countdown animate-scale">5</div>
     </div>
-    <button id="start-btn" class="animate-slide-2" style="margin-top: 2rem;">ROZPOCZNIJ BADANIE</button>
+    <div class="animate-slide-2">
+        <button type="button" id="start-btn" class="cta-heart-btn">
+            <img src="{{ url_for('static', filename='assets/CTA_Button.svg') }}" alt="" class="cta-bg">
+            <span class="cta-text">ROZPOCZNIJ<br>BADANIE</span>
+        </button>
+    </div>
 </div>
 
 <script>

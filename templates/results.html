@@ -1,37 +1,45 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<h2 class="animate-fade">Wynik dopasowania</h2>
+<h2 class="animate-fade">Wyniki dopasowania</h2>
+
 <div class="hero-container">
-    <div class="results-score animate-scale">{{ score }}%</div>
-    <div class="results-msg animate-fade">
-        <strong>{{ nick1 }} & {{ nick2 }}</strong><br>
-        {% if score > 80 %}
-            Idealna para. Wasze fale mózgowe nadają na tych samych częstotliwościach.
-        {% elif score > 50 %}
-            Dobre dopasowanie. Jest między Wami chemia... a przynajmniej fizyka.
-        {% else %}
-            Może być lepiej. Spróbujcie skupić się bardziej na sobie nawzajem.
-        {% endif %}
+    <div class="results-score-wrapper animate-scale">
+        <svg class="heart-stars" aria-hidden="true"><use href="#heart-with-stars"></use></svg>
+        <div class="results-score">{{ score }}%</div>
+        <svg class="heart-stars" aria-hidden="true"><use href="#heart-with-stars"></use></svg>
+    </div>
+
+    <div class="results-info animate-fade">
+        <div class="pair-names">{{ nick1 }} &amp; {{ nick2 }}</div>
+        <div class="pair-description">
+            {% if score > 80 %}
+                Idealna para. Wasze fale mózgowe nadają na tych samych częstotliwościach.
+            {% elif score > 50 %}
+                Dobre dopasowanie. Jest między Wami chemia... a przynajmniej fizyka.
+            {% else %}
+                Może być lepiej. Spróbujcie skupić się bardziej na sobie nawzajem.
+            {% endif %}
+        </div>
     </div>
 
     <!-- Leaderboard Section -->
     <div class="leaderboard-container animate-slide-1">
-        <h3>Ranking Par</h3>
+        <h3>Ranking par 💖</h3>
         <table class="leaderboard-table">
             <thead>
                 <tr>
                     <th>#</th>
-                    <th>Para</th>
-                    <th>Wynik</th>
+                    <th>PARA</th>
+                    <th>WYNIK</th>
                 </tr>
             </thead>
             <tbody>
                 {% for entry in leaderboard %}
                 <tr {% if entry.nick1 == nick1 and entry.nick2 == nick2 and entry.score == score %}class="current-session"{% endif %}>
                     <td>{{ loop.index }}</td>
-                    <td>{{ entry.nick1 }} + {{ entry.nick2 }}</td>
-                    <td>{{ entry.score }}%</td>
+                    <td>{{ entry.nick1 }} &amp; {{ entry.nick2 }}</td>
+                    <td class="score-col">{{ entry.score }}%</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -39,54 +47,12 @@
     </div>
 </div>
 
-<style>
-    .leaderboard-container {
-        margin-top: 4rem;
-        width: 100%;
-        max-width: 600px;
-        background: rgba(255, 255, 255, 0.03);
-        padding: 2rem;
-        border-radius: 16px;
-        border: 1px solid var(--border-color);
-    }
-
-    .leaderboard-table {
-        width: 100%;
-        border-collapse: collapse;
-        margin-top: 1rem;
-        font-size: 0.9rem;
-    }
-
-    .leaderboard-table th {
-        text-align: left;
-        padding: 0.75rem;
-        color: var(--secondary-text);
-        border-bottom: 1px solid var(--border-color);
-        text-transform: uppercase;
-        font-size: 0.7rem;
-        letter-spacing: 0.1em;
-    }
-
-    .leaderboard-table td {
-        padding: 1rem 0.75rem;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .current-session {
-        background: rgba(99, 102, 241, 0.1);
-        color: var(--accent-color);
-        font-weight: 600;
-    }
-
-    .current-session td {
-        border-bottom-color: var(--accent-color);
-    }
-</style>
-
-<button onclick="window.location.href='{{ url_for('register') }}'" class="animate-slide-3" style="margin-top: 3rem;">ZAGRAJ PONOWNIE</button>
+<div class="animate-slide-3" style="margin-top: 2rem;">
+    <button onclick="window.location.href='{{ url_for('register') }}'">ZAGRAJ PONOWNIE</button>
+</div>
 
 <script>
-    if (localStorage.getItem('candyMode') === 'true') {
+    if (localStorage.getItem('darkMode') !== 'true') {
         function createHeart() {
             const heart = document.createElement('div');
             heart.className = 'floating-heart';
@@ -102,10 +68,7 @@
             }, 6000);
         }
 
-        // Spawn hearts periodically
         const heartInterval = setInterval(createHeart, 300);
-        
-        // Stop spawning after 10 seconds to save performance
         setTimeout(() => clearInterval(heartInterval), 10000);
     }
 </script>

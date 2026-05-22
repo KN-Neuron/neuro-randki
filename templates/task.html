@@ -6,38 +6,6 @@
     <p id="task-text">Inicjalizacja badania...</p>
 </div>
 
-<style>
-    .stimulus-image, .stimulus-color, .stimulus-sound {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        animation: fadeInSimple 0.8s ease-out;
-    }
-
-    .sound-pulse {
-        width: 100px;
-        height: 100px;
-        background: var(--accent-color, #6366f1);
-        border-radius: 50%;
-        box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7);
-        animation: pulse 1.5s infinite;
-    }
-
-    @keyframes pulse {
-        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
-        70% { transform: scale(1); box-shadow: 0 0 0 40px rgba(99, 102, 241, 0); }
-        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
-    }
-
-    @keyframes fadeInSimple {
-        from { opacity: 0; }
-        to { opacity: 1; }
-    }
-</style>
-
 <script>
     const wrapper = document.querySelector('.app-wrapper');
     if (wrapper) wrapper.classList.add('is-task');
@@ -46,11 +14,11 @@
 
     const stimuli = [
         { type: 'color', value: '#ff0000' },
-        { type: 'image', value: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&q=80' }, // Mountains
-        { type: 'sound', value: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' }, // Testing with a different public MP3
+        { type: 'image', value: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&q=80' },
+        { type: 'sound', value: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
         { type: 'color', value: '#0000ff' },
         { type: 'sound', value: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
-        { type: 'image', value: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1920&q=80' }, // Abstract Blue
+        { type: 'image', value: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1920&q=80' },
         { type: 'color', value: '#00ff00' }
     ];
 
@@ -104,31 +72,27 @@
         showNextStimulus();
 
         const stimulus = stimuli[currentStimulusIndex];
-        // Colors show for 5 seconds, all others (image, sound) for 10 seconds
         const duration = stimulus.type === 'color' ? 5000 : 10000;
 
         setTimeout(() => {
             if (currentStimulusIndex === stimuli.length - 1) {
-                // Final stimulus finished, go to results
                 stopCurrentAudio();
                 if (wrapper) wrapper.classList.remove('is-task');
                 window.location.href = "{{ url_for('results') }}";
             } else {
-                // Start countdown for next stimulus
                 startCountdown(3);
             }
         }, duration);
     }
 
     function startCountdown(seconds) {
-        if (seconds === 3) stopCurrentAudio(); // Stop audio as soon as countdown starts
+        if (seconds === 3) stopCurrentAudio();
         
         if (seconds > 0) {
             container.style.backgroundColor = '#000';
             container.innerHTML = `<div class="countdown">${seconds}</div>`;
             setTimeout(() => startCountdown(seconds - 1), 1000);
         } else {
-            // Only increment if we are already in the sequence
             if (isSequenceRunning) {
                 currentStimulusIndex++;
             }
@@ -137,10 +101,9 @@
         }
     }
 
-    // Initial start
     function startWithCountdown() {
         container.style.backgroundColor = '#000';
-        startCountdown(3); // Start with a 3-second countdown
+        startCountdown(3);
     }
 
     startWithCountdown();
