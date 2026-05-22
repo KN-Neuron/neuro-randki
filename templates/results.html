@@ -26,28 +26,30 @@
     <!-- Leaderboard Section -->
     <div class="leaderboard-container animate-slide-1">
         <h3>Ranking par 💖</h3>
-        <table class="leaderboard-table">
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>PARA</th>
-                    <th>WYNIK</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for entry in leaderboard %}
-                <tr {% if entry.nick1 == nick1 and entry.nick2 == nick2 and entry.score == score %}class="current-session"{% endif %}>
-                    <td>{{ loop.index }}</td>
-                    <td>{{ entry.nick1 }} &amp; {{ entry.nick2 }}</td>
-                    <td class="score-col">{{ entry.score }}%</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <div class="leaderboard-table-wrapper">
+            <table class="leaderboard-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>PARA</th>
+                        <th>WYNIK</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for entry in leaderboard %}
+                    <tr {% if entry.nick1 == nick1 and entry.nick2 == nick2 and entry.score == score %}class="current-session"{% endif %}>
+                        <td>{{ loop.index }}</td>
+                        <td>{{ entry.nick1 }} &amp; {{ entry.nick2 }}</td>
+                        <td class="score-col">{{ entry.score }}%</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 
-<div class="animate-slide-3" style="margin-top: 2rem;">
+<div class="results-actions animate-slide-3">
     <button onclick="window.location.href='{{ url_for('register') }}'">ZAGRAJ PONOWNIE</button>
 </div>
 
