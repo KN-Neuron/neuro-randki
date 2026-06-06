@@ -1,33 +1,57 @@
-"""BrainAccess EEG acquisition module with mock fallback."""
+"""BrainAccess EEG — multi-device, automatic channel selection."""
 import threading
 import numpy as np
 import time
 from typing import Optional
 
-DEVICE_NAME = 'BA MAXI 012'
-DEVICE_MAC = 'C8:F0:9E:1C:C3:4A'
-
-# 4 channels selected from 8 available electrodes on BA MAXI 012
-# Indices chosen for frontal/central/parietal spread (0-indexed)
-EEG_CHANNEL_INDICES = [0, 2, 5, 7]
 NUM_MODEL_CHANNELS = 4
-DEFAULT_SR = 250  # Hz
+DEFAULT_SR = 250
+CALIBRATION_SEC = 3  # seconds of signal used for channel ranking
 
-# ── global hardware state ─────────────────────────────────────────────────────
-_ba_mgr = None
-_ba_connected = False
-_ba_sr = DEFAULT_SR
-_ba_n_eeg = 8
-_ba_lock = threading.Lock()
-_connect_thread: Optional[threading.Thread] = None
+# ── per-device state ──────────────────────────────────────────────────────────
+# key: device name string
+# value: {mgr, sr, n_eeg, channels, connected, battery}
+_devices: dict = {}
+_dev_lock = threading.Lock()
 
-# ── per-recording session buffers ─────────────────────────────────────────────
-_sessions: dict = {}   # user_id -> {'data': list[ndarray], 'active': bool}
+# ── per-recording session ─────────────────────────────────────────────────────
+# key: user_id (int)
+# value: {data: list[ndarray], active: bool, device: str, channels: list[int]}
+_sessions: dict = {}
 _sess_lock = threading.Lock()
 
 
-def _do_connect() -> bool:
-    global _ba_mgr, _ba_connected, _ba_sr, _ba_n_eeg
+# ─────────────────────────────────────────────────────────────────────────────
+#  SCANNING
+# ─────────────────────────────────────────────────────────────────────────────
+
+def scan_devices() -> list[dict]:
+    """Scan Bluetooth for BrainAccess devices. Returns [{name: str}]."""
+    try:
+        from brainaccess import core
+        core.init()
+        found = core.scan()
+        return [{'name': d.name} for d in found]
+    except Exception as exc:
+        print(f'[EEG] scan error: {exc}')
+        return []
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  CONNECTION
+# ─────────────────────────────────────────────────────────────────────────────
+
+def connect_device(device_name: str) -> dict:
+    """
+    Connect to named device.  Safe to call if already connected.
+    Returns: {status, n_channels, sr, battery}
+    """
+    with _dev_lock:
+        dev = _devices.get(device_name)
+        if dev and dev.get('connected'):
+            return {'status': 'already_connected',
+                    'n_channels': dev['n_eeg'], 'sr': dev['sr'],
+                    'battery': dev.get('battery', -1)}
     try:
         from brainaccess import core
         from brainaccess.core.eeg_manager import EEGManager
@@ -35,24 +59,20 @@ def _do_connect() -> bool:
         import brainaccess.core.eeg_channel as eeg_ch
 
         core.init()
-        devices = core.scan()
-        port = next((d.name for d in devices if DEVICE_NAME in d.name), None)
+        found = core.scan()
+        port = next((d.name for d in found if device_name in d.name), None)
         if port is None:
-            print(f'[EEG] Device "{DEVICE_NAME}" not found in scan')
-            return False
+            return {'status': 'not_found'}
 
         mgr = EEGManager()
-        status = mgr.connect(port)
-        if status == 1:
-            print('[EEG] Connection failed')
-            return False
-        if status == 2:
-            print('[EEG] Firmware incompatible')
-            return False
+        code = mgr.connect(port)
+        if code == 1:
+            return {'status': 'connect_failed'}
+        if code == 2:
+            return {'status': 'firmware_incompatible'}
 
         feats = mgr.get_device_features()
         n_eeg = feats.electrode_count()
-
         for i in range(n_eeg):
             mgr.set_channel_enabled(eeg_ch.ELECTRODE_MEASUREMENT + i, True)
             mgr.set_channel_gain(eeg_ch.ELECTRODE_MEASUREMENT + i, GainMode.X8)
@@ -64,83 +84,193 @@ def _do_connect() -> bool:
         sr = mgr.get_sample_frequency()
         mgr.load_config()
 
-        with _ba_lock:
-            _ba_mgr = mgr
-            _ba_sr = sr
-            _ba_n_eeg = n_eeg
-            _ba_connected = True
+        try:
+            batt = mgr.get_battery_info().level
+        except Exception:
+            batt = -1
 
-        print(f'[EEG] Connected: {port} | {n_eeg} ch | {sr} Hz')
-        return True
+        with _dev_lock:
+            _devices[device_name] = {
+                'mgr': mgr,
+                'sr': sr,
+                'n_eeg': n_eeg,
+                'channels': list(range(min(NUM_MODEL_CHANNELS, n_eeg))),
+                'connected': True,
+                'battery': batt,
+            }
+
+        print(f'[EEG] Connected {device_name}: {n_eeg}ch {sr}Hz bat={batt}%')
+        return {'status': 'ok', 'n_channels': n_eeg, 'sr': sr, 'battery': batt}
 
     except Exception as exc:
-        print(f'[EEG] Connection error: {exc}')
-        return False
+        print(f'[EEG] connect_device error: {exc}')
+        return {'status': 'error', 'message': str(exc)}
 
 
-def connect_async():
-    """Kick off BT connection in background. Safe to call multiple times."""
-    global _connect_thread
-    with _ba_lock:
-        if _ba_connected:
-            return
-        if _connect_thread and _connect_thread.is_alive():
-            return
-    t = threading.Thread(target=_do_connect, daemon=True, name='eeg-connect')
-    _connect_thread = t
-    t.start()
+def list_connected() -> list[str]:
+    with _dev_lock:
+        return [k for k, v in _devices.items() if v.get('connected')]
 
 
-def is_connected() -> bool:
-    with _ba_lock:
-        return _ba_connected
+def get_device_info(device_name: str) -> dict:
+    with _dev_lock:
+        dev = _devices.get(device_name)
+        if not dev:
+            return {'connected': False}
+        return {
+            'connected': dev.get('connected', False),
+            'n_channels': dev.get('n_eeg', 0),
+            'sr': dev.get('sr', DEFAULT_SR),
+            'channels': dev.get('channels', []),
+            'battery': dev.get('battery', -1),
+        }
 
 
-def _make_chunk_cb(user_id: int):
-    def cb(chunk, chunk_size):
+# ─────────────────────────────────────────────────────────────────────────────
+#  CHANNEL CALIBRATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _bandpass(data: np.ndarray, sr: int, lo: float = 1.0, hi: float = 40.0) -> np.ndarray:
+    """Apply butterworth bandpass.  Silently skips if scipy unavailable."""
+    try:
+        from scipy.signal import butter, sosfiltfilt
+        sos = butter(2, [lo, hi], btype='bandpass', fs=sr, output='sos')
+        return sosfiltfilt(sos, data, axis=1)
+    except Exception:
+        return data
+
+
+def calibrate_channels(device_name: str,
+                       n: int = NUM_MODEL_CHANNELS,
+                       duration: float = CALIBRATION_SEC) -> dict:
+    """
+    Record `duration` seconds on *device_name* and rank channels by signal
+    quality.  Updates the device's stored channel selection.
+
+    Returns:
+      {channels, variances, n_total}  — or {error} on failure.
+    """
+    with _dev_lock:
+        dev = _devices.get(device_name)
+        if not dev or not dev.get('connected'):
+            return {'error': 'device not connected'}
+        mgr  = dev['mgr']
+        n_eeg = dev['n_eeg']
+        sr    = dev['sr']
+
+    buf  = []
+    lock = threading.Lock()
+
+    def _cb(chunk, chunk_size):
+        with lock:
+            buf.append(chunk[:n_eeg].copy())
+
+    try:
+        mgr.set_callback_chunk(_cb)
+        mgr.start_stream()
+        time.sleep(duration)
+        mgr.stop_stream()
+        time.sleep(0.15)
+    except Exception as exc:
+        return {'error': str(exc)}
+
+    with lock:
+        if not buf:
+            return {'error': 'no data collected'}
+        raw = np.hstack(buf).astype(np.float64)   # (n_eeg, T)
+
+    filtered   = _bandpass(raw, sr)
+    variances  = np.var(filtered, axis=1)          # one value per channel
+
+    # Quality gate: exclude dead (too flat) and artifact-ridden (too spiky) channels.
+    med = float(np.median(variances)) or 1.0
+    scores = np.where(
+        (variances > med * 0.05) & (variances < med * 25),
+        variances, 0.0
+    )
+
+    # Pick top-n by score, then sort by index so they form a spatial sequence.
+    top_n = int(min(n, np.count_nonzero(scores)))
+    if top_n == 0:           # all channels gated out → fall back to first n
+        best = list(range(min(n, n_eeg)))
+    else:
+        best = sorted(np.argsort(scores)[-top_n:].tolist())
+
+    with _dev_lock:
+        if device_name in _devices:
+            _devices[device_name]['channels'] = best
+
+    print(f'[EEG] {device_name} → best channels: {best}  '
+          f'(vars: {[round(variances[c], 2) for c in best]})')
+    return {
+        'channels':  best,
+        'variances': variances.tolist(),
+        'n_total':   n_eeg,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  RECORDING
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _make_cb(user_id: int, n_eeg: int):
+    def _cb(chunk, chunk_size):
         with _sess_lock:
             sess = _sessions.get(user_id)
             if sess and sess['active']:
-                sess['data'].append(chunk[:_ba_n_eeg].copy())
-    return cb
+                sess['data'].append(chunk[:n_eeg].copy())
+    return _cb
 
 
-def start_recording(user_id: int) -> bool:
-    """Start buffering EEG data for *user_id*. Returns True if HW is active."""
+def start_recording(user_id: int, device_name: str) -> bool:
+    """
+    Start buffering EEG for *user_id* using *device_name*.
+    Channels are taken from the device's last calibration result.
+    """
+    with _dev_lock:
+        dev = _devices.get(device_name, {})
+        connected = dev.get('connected', False)
+        n_eeg     = dev.get('n_eeg', NUM_MODEL_CHANNELS)
+        channels  = dev.get('channels', list(range(NUM_MODEL_CHANNELS)))
+        mgr       = dev.get('mgr')
+
     with _sess_lock:
-        _sessions[user_id] = {'data': [], 'active': True}
-
-    with _ba_lock:
-        connected = _ba_connected
-        mgr = _ba_mgr
+        _sessions[user_id] = {'data': [], 'active': True,
+                              'device': device_name, 'channels': channels}
 
     if connected and mgr:
         try:
-            mgr.set_callback_chunk(_make_chunk_cb(user_id))
+            mgr.set_callback_chunk(_make_cb(user_id, n_eeg))
             mgr.start_stream()
-            print(f'[EEG] Recording started for user {user_id}')
+            print(f'[EEG] Recording: user={user_id} device={device_name} ch={channels}')
             return True
         except Exception as exc:
             print(f'[EEG] start_recording error: {exc}')
 
-    print(f'[EEG] Recording started (MOCK) for user {user_id}')
+    print(f'[EEG] Recording (MOCK): user={user_id}')
     return False
 
 
 def stop_recording(user_id: int) -> np.ndarray:
     """
-    Stop recording and return a (4, T) float32 array of selected EEG channels.
-    Falls back to mock data if hardware is unavailable or buffer is empty.
+    Stop buffering and return (4, T) float32 of the selected EEG channels.
+    Falls back to mock data if the session is empty.
     """
     with _sess_lock:
         if user_id in _sessions:
             _sessions[user_id]['active'] = False
+            sess_snap = dict(_sessions[user_id])
+        else:
+            return _mock_signal()
 
-    with _ba_lock:
-        connected = _ba_connected
-        mgr = _ba_mgr
+    device_name = sess_snap.get('device', '')
+    channels    = sess_snap.get('channels', list(range(NUM_MODEL_CHANNELS)))
 
-    if connected and mgr:
+    with _dev_lock:
+        dev = _devices.get(device_name, {})
+        mgr = dev.get('mgr') if dev.get('connected') else None
+
+    if mgr:
         try:
             mgr.stop_stream()
             time.sleep(0.3)
@@ -151,17 +281,32 @@ def stop_recording(user_id: int) -> np.ndarray:
         sess = _sessions.pop(user_id, None)
 
     if sess and sess['data']:
-        raw = np.hstack(sess['data'])           # (n_eeg, T)
-        valid = [i for i in EEG_CHANNEL_INDICES if i < raw.shape[0]]
+        raw   = np.hstack(sess['data']).astype(np.float32)  # (n_eeg, T)
+        valid = [c for c in channels if c < raw.shape[0]]
         if len(valid) < NUM_MODEL_CHANNELS:
             valid = list(range(min(NUM_MODEL_CHANNELS, raw.shape[0])))
-        print(f'[EEG] Stopped for user {user_id}: {raw.shape[1]} samples')
-        return raw[valid, :].astype(np.float32)
+        print(f'[EEG] Stopped: user={user_id} {raw.shape[1]} samples ch={valid}')
+        return raw[valid, :]
 
-    print(f'[EEG] No data for user {user_id}, returning mock')
+    print(f'[EEG] No data for user {user_id} → mock')
     return _mock_signal()
 
 
 def _mock_signal() -> np.ndarray:
     T = int(DEFAULT_SR * 60)
     return np.random.randn(NUM_MODEL_CHANNELS, T).astype(np.float32)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  LEGACY COMPAT  (used by app.py before this refactor)
+# ─────────────────────────────────────────────────────────────────────────────
+
+DEVICE_NAME_PRIMARY = 'BA MAXI 012'
+
+def connect_async():
+    t = threading.Thread(target=connect_device, args=(DEVICE_NAME_PRIMARY,),
+                         daemon=True, name='eeg-connect')
+    t.start()
+
+def is_connected() -> bool:
+    return DEVICE_NAME_PRIMARY in list_connected()

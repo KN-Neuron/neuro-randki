@@ -16,7 +16,8 @@
   const wrapper    = document.querySelector('.app-wrapper');
   const container  = document.getElementById('task-container');
   const USER_ID    = {{ user_id }};
-  const NEXT_URL   = "{{ next_url }}";
+  const NEXT_URL   = {{ next_url | tojson }};
+  const DEVICE     = {{ device | tojson }};
 
   if (wrapper) wrapper.classList.add('is-task');
 
@@ -84,7 +85,7 @@
     await fetch('/api/eeg/stop', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: USER_ID }),
+      body: JSON.stringify({ user_id: USER_ID, device: DEVICE }),
     }).catch(() => {});
 
     window.location.href = NEXT_URL;
@@ -106,7 +107,7 @@
   fetch('/api/eeg/start', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: USER_ID }),
+    body: JSON.stringify({ user_id: USER_ID, device: DEVICE }),
   }).catch(() => {});
 
   countdown(3, () => runSequence());

@@ -2,16 +2,14 @@
 
 {% block content %}
 <h2 class="animate-fade">
-  {% if mode == 'solo' %}
-    Twoje badanie
-  {% elif player == 2 %}
-    Kolej na {{ nick }}
-  {% else %}
-    Przygotujcie się
-  {% endif %}
+  {% if mode == 'solo' %}Twoje badanie
+  {% elif player == 2 %}Kolej na {{ nick }}
+  {% else %}Przygotujcie się{% endif %}
 </h2>
 
 <div class="hero-container">
+
+  <!-- Player / mode badge -->
   <div class="waiting-player-badge animate-fade">
     {% if mode == 'solo' %}
       <span class="badge-solo">TRYB SOLO</span>
@@ -34,70 +32,148 @@
     {% endif %}
   </p>
 
-  <!-- EEG status indicator -->
-  <div class="eeg-status animate-slide-2" id="eeg-status">
-    <span class="eeg-dot" id="eeg-dot"></span>
-    <span id="eeg-status-text">Łączenie z czepkiem...</span>
+  <!-- ── Calibration widget ─────────────────────────────── -->
+  <div class="cal-widget animate-slide-2" id="cal-widget">
+    <div class="cal-header">
+      <span class="device-label" id="device-label">
+        {% if device %}🎧 {{ device }}{% else %}Brak czepka — tryb testowy{% endif %}
+      </span>
+      <span class="cal-status" id="cal-status">
+        {% if device %}Łączenie...{% else %}OK{% endif %}
+      </span>
+    </div>
+
+    {% if device %}
+    <!-- Channel quality bars — populated by JS after calibration -->
+    <div class="cal-channels" id="cal-channels">
+      <p class="cal-hint">Kalibracja wybierze 4 najlepsze kanały...</p>
+    </div>
+    <div class="cal-result" id="cal-result" style="display:none;">
+      Wybrane kanały: <span id="cal-ch-list" class="cal-ch-list"></span>
+    </div>
+    {% endif %}
   </div>
 
+  <!-- Countdown (hidden until start pressed) -->
   <div id="countdown-wrapper" style="display:none;">
     <div id="countdown" class="countdown animate-scale">5</div>
   </div>
 
+  <!-- Start button — disabled until calibration done (or no device) -->
   <div class="animate-slide-3">
-    <button type="button" id="start-btn" class="cta-heart-btn">
+    <button type="button" id="start-btn" class="cta-heart-btn"
+            {% if device %}disabled style="opacity:0.5;pointer-events:none;"{% endif %}>
       <img src="{{ url_for('static', filename='assets/CTA_Button.svg') }}" alt="" class="cta-bg">
       <span class="cta-text">ROZPOCZNIJ<br>BADANIE</span>
     </button>
   </div>
+
 </div>
 
 <script>
-  const NEXT = "{{ next_url }}";
+const DEVICE  = {{ device | tojson }};
+const NEXT    = {{ next_url | tojson }};
+const startBtn = document.getElementById('start-btn');
 
-  // Trigger async BT connection as soon as page loads
-  fetch('/api/eeg/connect', { method: 'POST' }).catch(() => {});
+// ── Start button countdown ───────────────────────────────────────────────────
+function enableStart() {
+  startBtn.disabled = false;
+  startBtn.style.opacity = '1';
+  startBtn.style.pointerEvents = '';
+}
 
-  // Poll EEG status every 2 s
-  const dot = document.getElementById('eeg-dot');
-  const statusText = document.getElementById('eeg-status-text');
-  function pollStatus() {
-    fetch('/api/eeg/status')
-      .then(r => r.json())
-      .then(d => {
-        if (d.connected) {
-          dot.className = 'eeg-dot connected';
-          statusText.textContent = 'Czepek podłączony ✓';
-        } else {
-          dot.className = 'eeg-dot searching';
-          statusText.textContent = 'Szukam czepka...';
-          setTimeout(pollStatus, 2000);
-        }
-      })
-      .catch(() => {
-        dot.className = 'eeg-dot offline';
-        statusText.textContent = 'Brak czepka — tryb testowy';
-      });
-  }
-  pollStatus();
-
-  // Start button → countdown → navigate to task
-  const startBtn = document.getElementById('start-btn');
+startBtn.addEventListener('click', () => {
+  if (startBtn.disabled) return;
+  startBtn.style.display = 'none';
   const cwrap   = document.getElementById('countdown-wrapper');
-  const counter  = document.getElementById('countdown');
+  const counter = document.getElementById('countdown');
+  cwrap.style.display = 'block';
+  let count = 5;
+  const timer = setInterval(() => {
+    count--;
+    counter.textContent = count;
+    if (count <= 0) { clearInterval(timer); window.location.href = NEXT; }
+  }, 1000);
+});
 
-  startBtn.addEventListener('click', () => {
-    startBtn.style.display = 'none';
-    cwrap.style.display = 'block';
-    let count = 5;
-    const timer = setInterval(() => {
-      count--;
-      counter.textContent = count;
-      if (count <= 0) {
-        clearInterval(timer);
-        window.location.href = NEXT;
+// ── Calibration flow (only when a device is assigned) ───────────────────────
+if (DEVICE) {
+  const calStatus   = document.getElementById('cal-status');
+  const calChannels = document.getElementById('cal-channels');
+  const calResult   = document.getElementById('cal-result');
+  const calChList   = document.getElementById('cal-ch-list');
+
+  function setStatus(txt, cls) {
+    calStatus.textContent = txt;
+    calStatus.className = 'cal-status ' + (cls || '');
+  }
+
+  function renderChannelBars(variances, selected) {
+    const max = Math.max(...variances) || 1;
+    const bars = variances.map((v, i) => {
+      const pct     = Math.round((v / max) * 100);
+      const isSel   = selected.includes(i);
+      const quality = v === 0 ? 'dead' : (pct < 5 ? 'low' : 'ok');
+      return `<div class="ch-bar-wrap ${isSel ? 'ch-selected' : ''}" title="ch${i}: ${v.toFixed(2)}">
+                <div class="ch-bar ${quality}" style="height:${Math.max(pct,2)}%"></div>
+                <span class="ch-label">${isSel ? '<b>' + i + '</b>' : i}</span>
+              </div>`;
+    }).join('');
+    calChannels.innerHTML = `<div class="ch-bars">${bars}</div>`;
+  }
+
+  async function runCalibration() {
+    // 1. Connect
+    setStatus('Łączenie z czepkiem...', 'status-searching');
+    try {
+      const r = await fetch('/api/devices/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: DEVICE }),
+      });
+      const d = await r.json();
+      if (d.status !== 'ok' && d.status !== 'already_connected') {
+        setStatus('Nie można połączyć ✗', 'status-err');
+        enableStart();  // allow start in mock mode
+        return;
       }
-    }, 1000);
-  });
+      const bat = d.battery >= 0 ? ` · ${d.battery}% 🔋` : '';
+      document.getElementById('device-label').textContent =
+        `🎧 ${DEVICE}  ${d.n_channels}ch · ${d.sr}Hz${bat}`;
+      setStatus('Kalibracja sygnału...', 'status-searching');
+    } catch {
+      setStatus('Brak połączenia — tryb testowy', 'status-err');
+      enableStart();
+      return;
+    }
+
+    // 2. Calibrate (3 s recording)
+    try {
+      const r = await fetch('/api/devices/calibrate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: DEVICE }),
+      });
+      const cal = await r.json();
+      if (cal.error) {
+        setStatus('Kalibracja nieudana — tryb testowy', 'status-err');
+        enableStart();
+        return;
+      }
+      renderChannelBars(cal.variances, cal.channels);
+      calChList.textContent = cal.channels.join(', ');
+      calResult.style.display = 'block';
+      setStatus(`Gotowe ✓  (${cal.channels.length} kanały)`, 'status-ok');
+    } catch {
+      setStatus('Błąd kalibracji — tryb testowy', 'status-err');
+    }
+    enableStart();
+  }
+
+  runCalibration();
+} else {
+  // No device assigned — just enable start immediately
+  // (no-op: button already enabled when no device)
+}
 </script>
 {% endblock %}

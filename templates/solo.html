@@ -4,8 +4,24 @@
 <h2 class="animate-fade">Tryb Solo</h2>
 <p class="subtitle animate-fade">Dodaj swój odcisk mózgu do grafu przyjaźni</p>
 
-<form method="post">
-  <div class="solo-form-wrap animate-slide-1">
+<form method="post" id="solo-form">
+  <!-- ── Device picker ──────────────────────────────────────── -->
+  <div class="device-picker-section animate-slide-1">
+    <div class="device-picker-header">
+      <h3 style="margin:0;">
+        <svg class="player-icon" aria-hidden="true"><use href="#heart-with-stars"></use></svg>
+        Czepek EEG
+      </h3>
+      <button type="button" id="scan-btn" class="graph-btn scan-pulse">↺ Szukaj</button>
+    </div>
+    <div id="devices-area" class="devices-area">
+      <p class="device-hint">Naciśnij "Szukaj" by wykryć dostępne czepki.</p>
+    </div>
+    <input type="hidden" name="device" id="device-val">
+  </div>
+
+  <!-- ── Nick ──────────────────────────────────────────────── -->
+  <div class="solo-form-wrap animate-slide-2">
     <div class="user-form solo-form">
       <h3>
         <svg class="player-icon" aria-hidden="true"><use href="#heart-with-stars"></use></svg>
@@ -15,6 +31,7 @@
         <label>Nickname:</label>
         <input type="text" name="nick" required placeholder="np. BrainWaveRider">
       </div>
+      <div class="player-device-badge" id="solo-device-badge" style="display:none;"></div>
       <p class="solo-desc">
         Twój zapis EEG zostanie zamieniony na unikalny wektor
         i trafi do wspólnego grafu — zobaczysz, z kim masz
@@ -23,7 +40,7 @@
     </div>
   </div>
 
-  <div class="solo-actions animate-slide-2">
+  <div class="solo-actions animate-slide-3">
     <div class="flex-actions">
       <button type="submit" class="cta-heart-btn">
         <img src="{{ url_for('static', filename='assets/CTA_Button.svg') }}" alt="" class="cta-bg">
@@ -33,4 +50,69 @@
     </div>
   </div>
 </form>
+
+<script>
+let selectedDevice = '';
+
+function renderDevices(list) {
+  const area = document.getElementById('devices-area');
+  if (!list.length) {
+    area.innerHTML = '<p class="device-hint">Nie znaleziono czepków.</p>';
+    return;
+  }
+  area.innerHTML = list.map(d => `
+    <div class="device-card" data-device="${d.name}">
+      <div class="device-card-info">
+        <span class="device-card-name">${d.name}</span>
+        <span class="device-card-status ${d.connected ? 'status-connected' : 'status-idle'}">
+          ${d.connected ? '● Połączony' : '○ Dostępny'}
+        </span>
+      </div>
+      <div class="device-assign-row">
+        <button type="button" class="assign-btn ${selectedDevice === d.name ? 'assign-btn-active' : ''}"
+                data-device="${d.name}">
+          UŻYJ TEGO
+        </button>
+      </div>
+    </div>
+  `).join('');
+
+  area.querySelectorAll('.assign-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const dev = btn.dataset.device;
+      selectedDevice = (selectedDevice === dev) ? '' : dev;
+      document.getElementById('device-val').value = selectedDevice;
+      // update UI
+      area.querySelectorAll('.assign-btn').forEach(b =>
+        b.classList.toggle('assign-btn-active', b.dataset.device === selectedDevice));
+      const badge = document.getElementById('solo-device-badge');
+      if (selectedDevice) {
+        badge.textContent = `🎧 ${selectedDevice}`;
+        badge.style.display = 'block';
+      } else {
+        badge.style.display = 'none';
+      }
+    });
+  });
+}
+
+document.getElementById('scan-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('scan-btn');
+  btn.textContent = '⟳ Skanuję...';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/devices/scan', { method: 'POST' });
+    const { devices } = await r.json();
+    renderDevices(devices);
+  } catch {
+    document.getElementById('devices-area').innerHTML =
+      '<p class="device-hint" style="color:var(--accent-orange)">Błąd skanowania.</p>';
+  } finally {
+    btn.textContent = '↺ Szukaj';
+    btn.disabled = false;
+  }
+});
+
+window.addEventListener('DOMContentLoaded', () => document.getElementById('scan-btn').click());
+</script>
 {% endblock %}

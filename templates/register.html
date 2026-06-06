@@ -4,32 +4,169 @@
 <h2 class="animate-fade">Rejestracja graczy</h2>
 <p class="subtitle animate-fade">Sprawdź czy wasze serca nadają na tych samych falach</p>
 
-<form method="post">
-    <div class="flex-row">
-        <div class="user-form animate-slide-1">
-            <h3><svg class="player-icon" aria-hidden="true"><use href="#heart-with-stars"></use></svg> Gracz 1</h3>
-            <div class="form-group">
-                <label>Nickname:</label>
-                <input type="text" name="nick1" required placeholder="np. CyberCutie">
-            </div>
-        </div>
-        <div class="user-form animate-slide-2">
-            <h3><svg class="player-icon" aria-hidden="true"><use href="#heart-with-stars"></use></svg> Gracz 2</h3>
-            <div class="form-group">
-                <label>Nickname:</label>
-                <input type="text" name="nick2" required placeholder="np. PixelPrincess">
-            </div>
-        </div>
+<form method="post" id="register-form">
+  <!-- ── Device picker ──────────────────────────────────────── -->
+  <div class="device-picker-section animate-slide-1">
+    <div class="device-picker-header">
+      <h3 style="margin:0;">
+        <svg class="player-icon" aria-hidden="true"><use href="#heart-with-stars"></use></svg>
+        Czepki EEG
+      </h3>
+      <button type="button" id="scan-btn" class="graph-btn scan-pulse">↺ Szukaj czepków</button>
     </div>
-    <div class="animate-slide-3">
-        <button type="submit" class="cta-heart-btn">
-            <img src="{{ url_for('static', filename='assets/CTA_Button.svg') }}" alt="" class="cta-bg">
-            <span class="cta-text">ROZPOCZNIJ<br>TEST</span>
-        </button>
-        <div class="solo-link-row">
-            <a href="{{ url_for('solo') }}" class="back-link">🧠 Chcę dodać tylko swój zapis (tryb solo)</a>
-            <a href="{{ url_for('graph') }}" class="back-link">↗ Zobacz graf przyjaźni</a>
-        </div>
+    <div id="devices-area" class="devices-area">
+      <p class="device-hint">Naciśnij "Szukaj" by wykryć dostępne czepki przez Bluetooth.</p>
     </div>
+    <input type="hidden" name="device1" id="device1-val">
+    <input type="hidden" name="device2" id="device2-val">
+  </div>
+
+  <!-- ── Player nicks ───────────────────────────────────────── -->
+  <div class="flex-row">
+    <div class="user-form animate-slide-1" id="player1-form">
+      <h3>
+        <svg class="player-icon" aria-hidden="true"><use href="#heart-with-stars"></use></svg>
+        Gracz 1
+      </h3>
+      <div class="form-group">
+        <label>Nickname:</label>
+        <input type="text" name="nick1" required placeholder="np. CyberCutie">
+      </div>
+      <div class="player-device-badge" id="p1-device-badge" style="display:none;"></div>
+    </div>
+
+    <div class="user-form animate-slide-2" id="player2-form">
+      <h3>
+        <svg class="player-icon" aria-hidden="true"><use href="#heart-with-stars"></use></svg>
+        Gracz 2
+      </h3>
+      <div class="form-group">
+        <label>Nickname:</label>
+        <input type="text" name="nick2" required placeholder="np. PixelPrincess">
+      </div>
+      <div class="player-device-badge" id="p2-device-badge" style="display:none;"></div>
+    </div>
+  </div>
+
+  <div class="animate-slide-3">
+    <button type="submit" class="cta-heart-btn">
+      <img src="{{ url_for('static', filename='assets/CTA_Button.svg') }}" alt="" class="cta-bg">
+      <span class="cta-text">ROZPOCZNIJ<br>TEST</span>
+    </button>
+    <div class="solo-link-row">
+      <a href="{{ url_for('solo') }}" class="back-link">🧠 Tryb solo — dodaj tylko swój zapis</a>
+      <a href="{{ url_for('graph') }}" class="back-link">↗ Graf przyjaźni</a>
+    </div>
+  </div>
 </form>
+
+<script>
+// assignments: { 'BA MAXI 012': 1, 'BA HALO 001': 2 }
+const assignments = {};
+
+function getPlayerForDevice(dev) {
+  return assignments[dev] || null;
+}
+
+function renderDevices(list) {
+  const area = document.getElementById('devices-area');
+  if (!list.length) {
+    area.innerHTML = '<p class="device-hint">Nie znaleziono czepków. Upewnij się że Bluetooth jest włączony i czepek jest naładowany.</p>';
+    return;
+  }
+
+  area.innerHTML = list.map(d => `
+    <div class="device-card" id="dc-${CSS.escape(d.name)}" data-device="${d.name}">
+      <div class="device-card-info">
+        <span class="device-card-name">${d.name}</span>
+        <span class="device-card-status ${d.connected ? 'status-connected' : 'status-idle'}">
+          ${d.connected ? '● Połączony' : '○ Dostępny'}
+        </span>
+      </div>
+      <div class="device-assign-row">
+        <button type="button" class="assign-btn" data-device="${d.name}" data-player="1">
+          GRACZ 1
+        </button>
+        <button type="button" class="assign-btn" data-device="${d.name}" data-player="2">
+          GRACZ 2
+        </button>
+      </div>
+    </div>
+  `).join('');
+
+  // Restore any existing assignments
+  Object.entries(assignments).forEach(([dev, player]) => applyAssignment(dev, player));
+
+  area.querySelectorAll('.assign-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const dev    = btn.dataset.device;
+      const player = parseInt(btn.dataset.player);
+      // unassign other device from this player
+      Object.entries(assignments).forEach(([d, p]) => {
+        if (p === player && d !== dev) delete assignments[d];
+      });
+      if (assignments[dev] === player) {
+        delete assignments[dev];   // toggle off
+      } else {
+        assignments[dev] = player;
+      }
+      applyAssignment(dev, assignments[dev] || null);
+      updateHiddenInputs();
+    });
+  });
+}
+
+function applyAssignment(dev, player) {
+  const card = document.querySelector(`[data-device="${dev}"]`);
+  if (!card) return;
+
+  card.querySelectorAll('.assign-btn').forEach(b => {
+    const p = parseInt(b.dataset.player);
+    b.classList.toggle('assign-btn-active', p === player);
+  });
+
+  // Update player badge
+  [1, 2].forEach(p => {
+    const badge = document.getElementById(`p${p}-device-badge`);
+    const devForPlayer = Object.entries(assignments).find(([, pl]) => pl === p)?.[0];
+    if (badge) {
+      if (devForPlayer) {
+        badge.textContent = `🎧 ${devForPlayer}`;
+        badge.style.display = 'block';
+      } else {
+        badge.style.display = 'none';
+      }
+    }
+  });
+}
+
+function updateHiddenInputs() {
+  const d1 = Object.entries(assignments).find(([, p]) => p === 1)?.[0] || '';
+  const d2 = Object.entries(assignments).find(([, p]) => p === 2)?.[0] || '';
+  document.getElementById('device1-val').value = d1;
+  document.getElementById('device2-val').value = d2;
+}
+
+document.getElementById('scan-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('scan-btn');
+  btn.textContent = '⟳ Skanuję...';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/devices/scan', { method: 'POST' });
+    const { devices } = await r.json();
+    renderDevices(devices);
+  } catch {
+    document.getElementById('devices-area').innerHTML =
+      '<p class="device-hint" style="color:var(--accent-orange)">Błąd skanowania Bluetooth.</p>';
+  } finally {
+    btn.textContent = '↺ Szukaj czepków';
+    btn.disabled = false;
+  }
+});
+
+// Auto-scan on page load
+window.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('scan-btn').click();
+});
+</script>
 {% endblock %}

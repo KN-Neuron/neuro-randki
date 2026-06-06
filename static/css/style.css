@@ -998,6 +998,231 @@ footer {
 }
 
 /* ============================================
+   DEVICE PICKER  (register / solo pages)
+   ============================================ */
+.device-picker-section {
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.device-picker-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.9rem;
+}
+
+.devices-area {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    min-height: 44px;
+}
+
+.device-hint {
+    font-size: 0.78rem;
+    color: var(--secondary-text);
+    font-family: 'Courier New', Courier, monospace;
+    margin: 0;
+    padding: 0.25rem 0;
+}
+
+.device-card {
+    background: var(--card-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 12px;
+    padding: 0.75rem 1rem;
+    min-width: 180px;
+    flex: 1 1 180px;
+    max-width: 260px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.device-card:hover {
+    border-color: var(--accent-pink);
+    box-shadow: 0 0 0 2px rgba(255, 71, 200, 0.1);
+}
+
+.device-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.device-card-name {
+    font-family: 'Oxanium', sans-serif;
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--text-color);
+}
+
+.device-card-status {
+    font-size: 0.7rem;
+    font-family: 'Courier New', Courier, monospace;
+}
+
+.status-connected { color: #22c55e; }
+.status-idle      { color: var(--secondary-text); }
+.status-ok        { color: #22c55e; }
+.status-searching { color: var(--accent-orange); }
+.status-err       { color: #f87171; }
+
+.device-assign-row {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.assign-btn {
+    flex: 1;
+    background: var(--input-bg) !important;
+    color: var(--secondary-text) !important;
+    border: 1px solid var(--input-border) !important;
+    padding: 0.3rem 0.4rem !important;
+    font-size: 0.65rem !important;
+    border-radius: 8px !important;
+    box-shadow: none !important;
+    cursor: pointer;
+    transition: all 0.2s !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.05em;
+}
+
+.assign-btn:hover {
+    border-color: var(--accent-pink) !important;
+    color: var(--accent-pink) !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+.assign-btn-active {
+    background: linear-gradient(135deg, var(--accent-pink), #ff7bc5) !important;
+    color: #fff !important;
+    border-color: var(--accent-pink) !important;
+    box-shadow: 0 2px 8px rgba(255, 71, 200, 0.3) !important;
+}
+
+.player-device-badge {
+    margin-top: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--accent-pink);
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 600;
+}
+
+.scan-pulse {
+    animation: scanPulse 2s ease-in-out infinite;
+}
+
+@keyframes scanPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255, 71, 200, 0); }
+    50%       { box-shadow: 0 0 0 6px rgba(255, 71, 200, 0.15); }
+}
+
+/* ============================================
+   CALIBRATION WIDGET  (waiting page)
+   ============================================ */
+.cal-widget {
+    width: 100%;
+    max-width: 500px;
+    background: var(--input-bg);
+    border: 1px solid var(--input-border);
+    border-radius: 14px;
+    padding: 0.9rem 1.1rem;
+    margin: 0.5rem 0 1rem;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.78rem;
+}
+
+.cal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.6rem;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.device-label {
+    font-weight: 600;
+    color: var(--text-color);
+    font-size: 0.78rem;
+}
+
+.cal-status {
+    font-size: 0.72rem;
+}
+
+.cal-hint {
+    color: var(--secondary-text);
+    margin: 0;
+    font-size: 0.72rem;
+}
+
+/* Channel quality bar chart */
+.ch-bars {
+    display: flex;
+    gap: 2px;
+    align-items: flex-end;
+    height: 52px;
+    margin-top: 0.4rem;
+}
+
+.ch-bar-wrap {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+    cursor: default;
+}
+
+.ch-bar {
+    width: 100%;
+    border-radius: 2px 2px 0 0;
+    min-height: 2px;
+    transition: height 0.4s ease;
+}
+
+.ch-bar.ok   { background: var(--secondary-text); }
+.ch-bar.low  { background: var(--input-border); }
+.ch-bar.dead { background: #333; }
+
+.ch-bar-wrap.ch-selected .ch-bar {
+    background: var(--accent-pink) !important;
+    box-shadow: 0 0 4px rgba(255, 71, 200, 0.5);
+}
+
+.ch-label {
+    font-size: 0.5rem;
+    color: var(--secondary-text);
+    margin-top: 1px;
+    text-align: center;
+    white-space: nowrap;
+}
+
+.ch-bar-wrap.ch-selected .ch-label {
+    color: var(--accent-pink);
+}
+
+.cal-result {
+    margin-top: 0.5rem;
+    font-size: 0.72rem;
+    color: var(--text-color);
+}
+
+.cal-ch-list {
+    color: var(--accent-pink);
+    font-weight: 700;
+}
+
+/* ============================================
    EEG STATUS INDICATOR
    ============================================ */
 .eeg-status {
