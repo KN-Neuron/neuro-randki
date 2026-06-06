@@ -1,2 +1,5 @@
 flask
-sqlite3
+torch
+numpy
+# brainaccess — install from BrainAccess SDK (already installed system-wide)
+# torch CPU: pip install torch --index-url https://download.pytorch.org/whl/cpu

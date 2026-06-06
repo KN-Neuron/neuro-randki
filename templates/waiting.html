@@ -1,38 +1,103 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<h2 class="animate-fade">Przygotujcie się</h2>
+<h2 class="animate-fade">
+  {% if mode == 'solo' %}
+    Twoje badanie
+  {% elif player == 2 %}
+    Kolej na {{ nick }}
+  {% else %}
+    Przygotujcie się
+  {% endif %}
+</h2>
+
 <div class="hero-container">
-    <p class="waiting-text">Zadanie rozpocznie się po naciśnięciu przycisku.<br>Proszę założyć zestawy EEG i patrzeć na ekran.</p>
-    <div id="countdown-wrapper" style="display: none;">
-        <div id="countdown" class="countdown animate-scale">5</div>
-    </div>
-    <div class="animate-slide-2">
-        <button type="button" id="start-btn" class="cta-heart-btn">
-            <img src="{{ url_for('static', filename='assets/CTA_Button.svg') }}" alt="" class="cta-bg">
-            <span class="cta-text">ROZPOCZNIJ<br>BADANIE</span>
-        </button>
-    </div>
+  <div class="waiting-player-badge animate-fade">
+    {% if mode == 'solo' %}
+      <span class="badge-solo">TRYB SOLO</span>
+    {% else %}
+      <span class="badge-player">GRACZ {{ player }}</span>
+      <span class="badge-nick">{{ nick }}</span>
+    {% endif %}
+  </div>
+
+  <p class="waiting-text animate-slide-1">
+    {% if mode == 'solo' %}
+      Załóż czepek EEG i naciśnij przycisk,<br>gdy jesteś gotowy/gotowa.
+    {% elif player == 2 %}
+      {{ nick }}, teraz Twoja kolej.<br>
+      Zamień się czepkiem z {{ nick1 }}<br>
+      i naciśnij przycisk gdy jesteś gotowy/gotowa.
+    {% else %}
+      {{ nick }}, proszę założyć czepek EEG<br>
+      i patrzeć uważnie na ekran.
+    {% endif %}
+  </p>
+
+  <!-- EEG status indicator -->
+  <div class="eeg-status animate-slide-2" id="eeg-status">
+    <span class="eeg-dot" id="eeg-dot"></span>
+    <span id="eeg-status-text">Łączenie z czepkiem...</span>
+  </div>
+
+  <div id="countdown-wrapper" style="display:none;">
+    <div id="countdown" class="countdown animate-scale">5</div>
+  </div>
+
+  <div class="animate-slide-3">
+    <button type="button" id="start-btn" class="cta-heart-btn">
+      <img src="{{ url_for('static', filename='assets/CTA_Button.svg') }}" alt="" class="cta-bg">
+      <span class="cta-text">ROZPOCZNIJ<br>BADANIE</span>
+    </button>
+  </div>
 </div>
 
 <script>
-    const startBtn = document.getElementById('start-btn');
-    const countdownWrapper = document.getElementById('countdown-wrapper');
-    const counter = document.getElementById('countdown');
-    
-    startBtn.addEventListener('click', () => {
-        startBtn.style.display = 'none';
-        countdownWrapper.style.display = 'block';
-        
-        let count = 5;
-        const timer = setInterval(() => {
-            count--;
-            counter.textContent = count;
-            if (count <= 0) {
-                clearInterval(timer);
-                window.location.href = "{{ url_for('task') }}";
-            }
-        }, 1000);
-    });
+  const NEXT = "{{ next_url }}";
+
+  // Trigger async BT connection as soon as page loads
+  fetch('/api/eeg/connect', { method: 'POST' }).catch(() => {});
+
+  // Poll EEG status every 2 s
+  const dot = document.getElementById('eeg-dot');
+  const statusText = document.getElementById('eeg-status-text');
+  function pollStatus() {
+    fetch('/api/eeg/status')
+      .then(r => r.json())
+      .then(d => {
+        if (d.connected) {
+          dot.className = 'eeg-dot connected';
+          statusText.textContent = 'Czepek podłączony ✓';
+        } else {
+          dot.className = 'eeg-dot searching';
+          statusText.textContent = 'Szukam czepka...';
+          setTimeout(pollStatus, 2000);
+        }
+      })
+      .catch(() => {
+        dot.className = 'eeg-dot offline';
+        statusText.textContent = 'Brak czepka — tryb testowy';
+      });
+  }
+  pollStatus();
+
+  // Start button → countdown → navigate to task
+  const startBtn = document.getElementById('start-btn');
+  const cwrap   = document.getElementById('countdown-wrapper');
+  const counter  = document.getElementById('countdown');
+
+  startBtn.addEventListener('click', () => {
+    startBtn.style.display = 'none';
+    cwrap.style.display = 'block';
+    let count = 5;
+    const timer = setInterval(() => {
+      count--;
+      counter.textContent = count;
+      if (count <= 0) {
+        clearInterval(timer);
+        window.location.href = NEXT;
+      }
+    }, 1000);
+  });
 </script>
 {% endblock %}

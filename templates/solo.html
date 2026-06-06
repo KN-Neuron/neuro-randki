@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2 class="animate-fade">Tryb Solo</h2>
+<p class="subtitle animate-fade">Dodaj swój odcisk mózgu do grafu przyjaźni</p>
+
+<form method="post">
+  <div class="solo-form-wrap animate-slide-1">
+    <div class="user-form solo-form">
+      <h3>
+        <svg class="player-icon" aria-hidden="true"><use href="#heart-with-stars"></use></svg>
+        Twoje dane
+      </h3>
+      <div class="form-group">
+        <label>Nickname:</label>
+        <input type="text" name="nick" required placeholder="np. BrainWaveRider">
+      </div>
+      <p class="solo-desc">
+        Twój zapis EEG zostanie zamieniony na unikalny wektor
+        i trafi do wspólnego grafu — zobaczysz, z kim masz
+        najbliższe fale mózgowe.
+      </p>
+    </div>
+  </div>
+
+  <div class="solo-actions animate-slide-2">
+    <div class="flex-actions">
+      <button type="submit" class="cta-heart-btn">
+        <img src="{{ url_for('static', filename='assets/CTA_Button.svg') }}" alt="" class="cta-bg">
+        <span class="cta-text">DODAJ<br>ZAPIS</span>
+      </button>
+      <a href="{{ url_for('register') }}" class="back-link">← Powrót do trybu para</a>
+    </div>
+  </div>
+</form>
+{% endblock %}

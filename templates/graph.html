@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2 class="animate-fade">Graf Przyjaźni Mózgów</h2>
+<p class="subtitle animate-fade">Krawędź łączy osoby o podobnych falach (podobieństwo ≥ 32.6%)</p>
+
+<div class="graph-toolbar animate-slide-1">
+  <div class="graph-legend">
+    <span class="legend-dot paired"></span><span>Para</span>
+    <span class="legend-dot solo"></span><span>Solo</span>
+    <span class="legend-line"></span><span>Podobieństwo EEG</span>
+  </div>
+  <div class="graph-actions">
+    <button type="button" id="btn-refresh" class="graph-btn">↺ Odśwież</button>
+    <button type="button" id="btn-reset" class="graph-btn">⊙ Wyśrodkuj</button>
+  </div>
+</div>
+
+<div class="graph-container animate-slide-2" id="graph-wrap">
+  <div class="graph-empty" id="graph-empty" style="display:none;">
+    <p>Brak danych. Zarejestruj się i przeprowadź badanie.</p>
+  </div>
+  <svg id="graph-svg"></svg>
+</div>
+
+<div class="graph-tooltip" id="graph-tooltip" style="display:none;"></div>
+
+<div class="graph-footer animate-slide-3">
+  <a href="{{ url_for('register') }}">
+    <button type="button">ZAGRAJ Z PARĄ</button>
+  </a>
+  <a href="{{ url_for('solo') }}">
+    <button type="button" style="background:linear-gradient(135deg,#a855f7,#7c3aed);">DODAJ SOLO</button>
+  </a>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<script>
+(function() {
+  const wrap   = document.getElementById('graph-wrap');
+  const empty  = document.getElementById('graph-empty');
+  const svgEl  = document.getElementById('graph-svg');
+  const tip    = document.getElementById('graph-tooltip');
+  const isDark = localStorage.getItem('darkMode') === 'true';
+
+  // ── colour palette ────────────────────────────────────────────────────────
+  const C = {
+    nodePaired:  isDark ? '#FF47C8' : '#FF47C8',
+    nodeSolo:    isDark ? '#a855f7' : '#9333ea',
+    nodeStroke:  isDark ? '#2a0a20' : '#ffffff',
+    edgeHigh:    isDark ? '#FF47C8' : '#E88D1A',
+    edgeLow:     isDark ? '#502040' : '#ffc5e8',
+    text:        isDark ? '#f0d0e0' : '#300D25',
+    bg:          isDark ? '#1a0a15' : '#ffffff',
+    glow:        isDark ? 'rgba(255,71,200,0.5)' : 'rgba(232,141,26,0.4)',
+  };
+
+  // ── sizing ────────────────────────────────────────────────────────────────
+  function getSize() {
+    const r = wrap.getBoundingClientRect();
+    return { w: r.width, h: Math.max(r.height, 420) };
+  }
+
+  const { w, h } = getSize();
+  const svg = d3.select(svgEl)
+    .attr('width', w).attr('height', h)
+    .style('background', C.bg)
+    .style('border-radius', '16px');
+
+  const defs = svg.append('defs');
+
+  // Glow filter
+  const glow = defs.append('filter').attr('id', 'glow').attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%');
+  glow.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'blur');
+  const feMerge = glow.append('feMerge');
+  feMerge.append('feMergeNode').attr('in', 'blur');
+  feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+
+  // Arrow marker
+  defs.append('marker')
+    .attr('id', 'arrow')
+    .attr('viewBox', '0 -5 10 10').attr('refX', 20).attr('refY', 0)
+    .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
+    .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', C.edgeHigh).attr('opacity', 0.5);
+
+  // Gradient for edges
+  function makeGrad(id, c1, c2) {
+    const g = defs.append('linearGradient').attr('id', id).attr('gradientUnits', 'userSpaceOnUse');
+    g.append('stop').attr('offset', '0%').attr('stop-color', c1);
+    g.append('stop').attr('offset', '100%').attr('stop-color', c2);
+    return g;
+  }
+
+  const zoomG = svg.append('g').attr('class', 'zoom-layer');
+
+  const zoom = d3.zoom()
+    .scaleExtent([0.3, 4])
+    .on('zoom', e => zoomG.attr('transform', e.transform));
+  svg.call(zoom);
+
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+  });
+
+  // ── simulation ────────────────────────────────────────────────────────────
+  let sim, linkSel, nodeSel, labelSel;
+
+  function buildGraph(data) {
+    const { nodes, links } = data;
+    if (!nodes.length) {
+      empty.style.display = 'flex';
+      svgEl.style.display = 'none';
+      return;
+    }
+    empty.style.display = 'none';
+    svgEl.style.display = '';
+
+    // Create per-edge gradient IDs
+    links.forEach((l, i) => {
+      const id = `eg${i}`;
+      l._gradId = id;
+      const src = nodes.find(n => n.id === l.source || n.id === l.source.id);
+      const tgt = nodes.find(n => n.id === l.target || n.id === l.target.id);
+      const c1 = src && src.is_solo ? C.nodeSolo : C.nodePaired;
+      const c2 = tgt && tgt.is_solo ? C.nodeSolo : C.nodePaired;
+      makeGrad(id, c1, c2);
+    });
+
+    zoomG.selectAll('*').remove();
+
+    // Links
+    linkSel = zoomG.append('g').attr('class', 'links')
+      .selectAll('line').data(links).join('line')
+        .attr('stroke', d => `url(#${d._gradId})`)
+        .attr('stroke-width', d => 1 + (d.similarity - 0.3258) * 8)
+        .attr('stroke-opacity', d => 0.35 + d.similarity * 0.5)
+        .attr('stroke-linecap', 'round');
+
+    // Nodes
+    const nodeG = zoomG.append('g').attr('class', 'nodes')
+      .selectAll('g').data(nodes).join('g')
+        .attr('class', 'node-group')
+        .call(d3.drag()
+          .on('start', dragStart)
+          .on('drag',  dragged)
+          .on('end',   dragEnd));
+
+    nodeSel = nodeG.append('circle')
+      .attr('r', 18)
+      .attr('fill', d => d.is_solo ? C.nodeSolo : C.nodePaired)
+      .attr('stroke', C.nodeStroke)
+      .attr('stroke-width', d => d.is_solo ? 3 : 2)
+      .attr('stroke-dasharray', d => d.is_solo ? '5 3' : 'none')
+      .style('cursor', 'grab')
+      .style('filter', 'url(#glow)');
+
+    // Inner pulse ring
+    nodeG.append('circle')
+      .attr('r', 22)
+      .attr('fill', 'none')
+      .attr('stroke', d => d.is_solo ? C.nodeSolo : C.nodePaired)
+      .attr('stroke-width', 1)
+      .attr('stroke-opacity', 0.25);
+
+    labelSel = nodeG.append('text')
+      .text(d => d.nickname)
+      .attr('text-anchor', 'middle')
+      .attr('dy', '2.4em')
+      .attr('font-family', 'Oxanium, sans-serif')
+      .attr('font-size', '11px')
+      .attr('font-weight', '600')
+      .attr('fill', C.text)
+      .attr('pointer-events', 'none');
+
+    // Hover interactions
+    nodeG
+      .on('mouseover', function(event, d) {
+        d3.select(this).select('circle').attr('r', 23).attr('stroke-width', 3);
+        const conns = links.filter(l =>
+          (l.source.id || l.source) === d.id || (l.target.id || l.target) === d.id
+        );
+        const lines = conns.map(l =>
+          `${l.score}% z ${nodes.find(n => n.id === ((l.source.id || l.source) === d.id ? (l.target.id || l.target) : (l.source.id || l.source)))?.nickname || '?'}`
+        ).join('<br>');
+        tip.innerHTML = `<strong>${d.nickname}</strong>${d.is_solo ? ' <em>(solo)</em>' : ''}<br>${lines || 'brak połączeń'}`;
+        tip.style.display = 'block';
+      })
+      .on('mousemove', event => {
+        tip.style.left = (event.pageX + 14) + 'px';
+        tip.style.top  = (event.pageY - 10) + 'px';
+      })
+      .on('mouseout', function() {
+        d3.select(this).select('circle').attr('r', 18).attr('stroke-width', d => d.is_solo ? 3 : 2);
+        tip.style.display = 'none';
+      });
+
+    linkSel
+      .on('mouseover', function(event, d) {
+        d3.select(this).attr('stroke-opacity', 1).attr('stroke-width', d => 3 + (d.similarity - 0.3258) * 8);
+        const sname = (typeof d.source === 'object' ? d.source.nickname : nodes.find(n => n.id === d.source)?.nickname) || '?';
+        const tname = (typeof d.target === 'object' ? d.target.nickname : nodes.find(n => n.id === d.target)?.nickname) || '?';
+        tip.innerHTML = `<strong>${sname}</strong> & <strong>${tname}</strong><br>Podobieństwo: ${d.score}%`;
+        tip.style.display = 'block';
+      })
+      .on('mousemove', event => {
+        tip.style.left = (event.pageX + 14) + 'px';
+        tip.style.top  = (event.pageY - 10) + 'px';
+      })
+      .on('mouseout', function(event, d) {
+        d3.select(this)
+          .attr('stroke-opacity', 0.35 + d.similarity * 0.5)
+          .attr('stroke-width', 1 + (d.similarity - 0.3258) * 8);
+        tip.style.display = 'none';
+      });
+
+    // Force simulation
+    if (sim) sim.stop();
+    sim = d3.forceSimulation(nodes)
+      .force('link', d3.forceLink(links).id(d => d.id)
+        .strength(d => d.similarity * 0.4)
+        .distance(d => 180 - d.similarity * 120))
+      .force('charge', d3.forceManyBody().strength(-300))
+      .force('center', d3.forceCenter(w / 2, h / 2))
+      .force('collide', d3.forceCollide(35))
+      .alphaDecay(0.025)
+      .on('tick', ticked);
+  }
+
+  function ticked() {
+    linkSel
+      .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
+      .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
+    zoomG.selectAll('.node-group')
+      .attr('transform', d => `translate(${d.x},${d.y})`);
+  }
+
+  function dragStart(event, d) {
+    if (!event.active) sim.alphaTarget(0.3).restart();
+    d.fx = d.x; d.fy = d.y;
+  }
+  function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
+  function dragEnd(event, d) {
+    if (!event.active) sim.alphaTarget(0);
+    d.fx = null; d.fy = null;
+  }
+
+  // ── load data ─────────────────────────────────────────────────────────────
+  function load() {
+    fetch('/api/graph_data')
+      .then(r => r.json())
+      .then(buildGraph)
+      .catch(() => {
+        empty.style.display = 'flex';
+        svgEl.style.display = 'none';
+      });
+  }
+
+  load();
+  document.getElementById('btn-refresh').addEventListener('click', load);
+
+  // Resize
+  window.addEventListener('resize', () => {
+    const { w: nw, h: nh } = getSize();
+    svg.attr('width', nw).attr('height', nh);
+    if (sim) sim.force('center', d3.forceCenter(nw/2, nh/2)).alpha(0.1).restart();
+  });
+})();
+</script>
+{% endblock %}

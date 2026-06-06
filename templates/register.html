@@ -26,6 +26,10 @@
             <img src="{{ url_for('static', filename='assets/CTA_Button.svg') }}" alt="" class="cta-bg">
             <span class="cta-text">ROZPOCZNIJ<br>TEST</span>
         </button>
+        <div class="solo-link-row">
+            <a href="{{ url_for('solo') }}" class="back-link">🧠 Chcę dodać tylko swój zapis (tryb solo)</a>
+            <a href="{{ url_for('graph') }}" class="back-link">↗ Zobacz graf przyjaźni</a>
+        </div>
     </div>
 </form>
 {% endblock %}

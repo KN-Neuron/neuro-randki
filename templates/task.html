@@ -2,110 +2,113 @@
 
 {% block content %}
 <div class="task-display" id="task-container">
-    <!-- Stimulus will be injected here -->
-    <p id="task-text">Inicjalizacja badania...</p>
+  <p id="task-text">Inicjalizacja badania...</p>
+</div>
+
+<div id="eeg-overlay" class="eeg-saving-overlay" style="display:none;">
+  <div class="eeg-saving-box">
+    <div class="sound-pulse"></div>
+    <p>Zapisuję odcisk mózgu...</p>
+  </div>
 </div>
 
 <script>
-    const wrapper = document.querySelector('.app-wrapper');
-    if (wrapper) wrapper.classList.add('is-task');
+  const wrapper    = document.querySelector('.app-wrapper');
+  const container  = document.getElementById('task-container');
+  const USER_ID    = {{ user_id }};
+  const NEXT_URL   = "{{ next_url }}";
 
-    const container = document.getElementById('task-container');
+  if (wrapper) wrapper.classList.add('is-task');
 
-    const stimuli = [
-        { type: 'color', value: '#ff0000' },
-        { type: 'image', value: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&q=80' },
-        { type: 'sound', value: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
-        { type: 'color', value: '#0000ff' },
-        { type: 'sound', value: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
-        { type: 'image', value: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1920&q=80' },
-        { type: 'color', value: '#00ff00' }
-    ];
+  const stimuli = [
+    { type: 'color', value: '#ff0000' },
+    { type: 'image', value: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&q=80' },
+    { type: 'sound', value: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
+    { type: 'color', value: '#0000ff' },
+    { type: 'sound', value: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
+    { type: 'image', value: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1920&q=80' },
+    { type: 'color', value: '#00ff00' }
+  ];
 
-    let currentStimulusIndex = 0;
-    let currentAudio = null;
-    let isSequenceRunning = false;
+  let idx = 0;
+  let currentAudio = null;
 
-    function stopCurrentAudio() {
-        if (currentAudio) {
-            console.log("Stopping audio:", currentAudio.src);
-            currentAudio.pause();
-            currentAudio.currentTime = 0;
-            currentAudio = null;
-        }
+  function stopAudio() {
+    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  }
+
+  function showStimulus() {
+    const s = stimuli[idx];
+    container.innerHTML = '';
+    container.style.backgroundColor = '#000';
+    stopAudio();
+
+    if (s.type === 'color') {
+      const d = document.createElement('div');
+      d.className = 'stimulus-color';
+      d.style.backgroundColor = s.value;
+      container.appendChild(d);
+    } else if (s.type === 'image') {
+      const img = document.createElement('img');
+      img.src = s.value;
+      img.className = 'stimulus-image';
+      container.appendChild(img);
+    } else if (s.type === 'sound') {
+      const d = document.createElement('div');
+      d.className = 'stimulus-sound';
+      d.innerHTML = '<div class="sound-pulse"></div>';
+      container.appendChild(d);
+      currentAudio = new Audio(s.value);
+      currentAudio.play().catch(() => {});
     }
+  }
 
-    function showNextStimulus() {
-        const stimulus = stimuli[currentStimulusIndex];
-        container.innerHTML = '';
-        container.style.backgroundColor = '#000';
-        
-        stopCurrentAudio();
-        
-        if (stimulus.type === 'color') {
-            const colorDiv = document.createElement('div');
-            colorDiv.className = 'stimulus-color';
-            colorDiv.style.backgroundColor = stimulus.value;
-            container.appendChild(colorDiv);
-        } else if (stimulus.type === 'image') {
-            const img = document.createElement('img');
-            img.src = stimulus.value;
-            img.className = 'stimulus-image';
-            container.appendChild(img);
-        } else if (stimulus.type === 'sound') {
-            const soundDiv = document.createElement('div');
-            soundDiv.className = 'stimulus-sound';
-            soundDiv.innerHTML = '<div class="sound-pulse"></div>';
-            container.appendChild(soundDiv);
-            
-            console.log("Attempting to play audio:", stimulus.value);
-            currentAudio = new Audio(stimulus.value);
-            currentAudio.play()
-                .then(() => console.log("Playback started successfully"))
-                .catch(e => {
-                    console.error("Audio playback failed or was interrupted:", e);
-                });
-        }
+  function countdown(n, onDone) {
+    if (n === 3) stopAudio();
+    if (n > 0) {
+      container.style.backgroundColor = '#000';
+      container.innerHTML = `<div class="countdown">${n}</div>`;
+      setTimeout(() => countdown(n - 1, onDone), 1000);
+    } else {
+      onDone();
     }
+  }
 
-    function runSequence() {
-        showNextStimulus();
+  async function finishTask() {
+    stopAudio();
+    if (wrapper) wrapper.classList.remove('is-task');
 
-        const stimulus = stimuli[currentStimulusIndex];
-        const duration = stimulus.type === 'color' ? 5000 : 10000;
+    // Show saving overlay
+    document.getElementById('eeg-overlay').style.display = 'flex';
 
-        setTimeout(() => {
-            if (currentStimulusIndex === stimuli.length - 1) {
-                stopCurrentAudio();
-                if (wrapper) wrapper.classList.remove('is-task');
-                window.location.href = "{{ url_for('results') }}";
-            } else {
-                startCountdown(3);
-            }
-        }, duration);
-    }
+    await fetch('/api/eeg/stop', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: USER_ID }),
+    }).catch(() => {});
 
-    function startCountdown(seconds) {
-        if (seconds === 3) stopCurrentAudio();
-        
-        if (seconds > 0) {
-            container.style.backgroundColor = '#000';
-            container.innerHTML = `<div class="countdown">${seconds}</div>`;
-            setTimeout(() => startCountdown(seconds - 1), 1000);
-        } else {
-            if (isSequenceRunning) {
-                currentStimulusIndex++;
-            }
-            isSequenceRunning = true;
-            runSequence();
-        }
-    }
+    window.location.href = NEXT_URL;
+  }
 
-    function startWithCountdown() {
-        container.style.backgroundColor = '#000';
-        startCountdown(3);
-    }
+  function runSequence() {
+    showStimulus();
+    const dur = stimuli[idx].type === 'color' ? 5000 : 10000;
+    setTimeout(() => {
+      if (idx === stimuli.length - 1) {
+        finishTask();
+      } else {
+        countdown(3, () => { idx++; runSequence(); });
+      }
+    }, dur);
+  }
 
-    startWithCountdown();
+  // Start EEG recording, then begin stimuli after short delay
+  fetch('/api/eeg/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user_id: USER_ID }),
+  }).catch(() => {});
+
+  countdown(3, () => runSequence());
 </script>
 {% endblock %}

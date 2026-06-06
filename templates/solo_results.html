@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2 class="animate-fade">Odcisk zapisany!</h2>
+
+<div class="hero-container">
+  <div class="solo-result-icon animate-scale">
+    <svg class="heart-stars" aria-hidden="true"><use href="#heart-with-stars"></use></svg>
+  </div>
+
+  <div class="results-info animate-fade" style="text-align:center;">
+    <div class="pair-names">{{ nick }}</div>
+    <div class="pair-description">
+      Twój neuronowy odcisk mózgu został dodany do grafu przyjaźni.<br>
+      Sprawdź, z kim masz najbliższe fale!
+    </div>
+  </div>
+
+  <div class="solo-result-actions animate-slide-2">
+    <a href="{{ graph_url }}" class="btn-graph-link">
+      <button type="button">POKAŻ GRAF PRZYJAŹNI</button>
+    </a>
+    <a href="{{ url_for('solo') }}" class="back-link" style="margin-top:1rem;">
+      ← Dodaj kolejny zapis
+    </a>
+  </div>
+</div>
+
+<script>
+  // Subtle brain-wave particles
+  if (localStorage.getItem('darkMode') !== 'true') {
+    function spawnParticle() {
+      const p = document.createElement('div');
+      p.className = 'floating-heart';
+      p.innerText = ['🧠','✨','💫','🔮','💜'][Math.floor(Math.random()*5)];
+      p.style.left = Math.random() * 100 + 'vw';
+      p.style.animationDuration = (Math.random()*3+3) + 's';
+      p.style.fontSize = (Math.random()*1.5+0.8) + 'rem';
+      document.body.appendChild(p);
+      setTimeout(() => p.remove(), 6000);
+    }
+    const iv = setInterval(spawnParticle, 400);
+    setTimeout(() => clearInterval(iv), 8000);
+  }
+</script>
+{% endblock %}

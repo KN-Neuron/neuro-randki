@@ -996,3 +996,340 @@ footer {
         font-size: 4.5rem;
     }
 }
+
+/* ============================================
+   EEG STATUS INDICATOR
+   ============================================ */
+.eeg-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.78rem;
+    font-family: 'Courier New', Courier, monospace;
+    color: var(--secondary-text);
+    margin: 0.75rem 0 1.25rem;
+    padding: 0.4rem 1rem;
+    border: 1px solid var(--input-border);
+    border-radius: 50px;
+    background: var(--input-bg);
+    transition: all 0.4s ease;
+}
+
+.eeg-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    background: #888;
+    transition: background 0.4s ease;
+}
+.eeg-dot.searching  { background: var(--accent-orange); animation: pulse 1.5s infinite; }
+.eeg-dot.connected  { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.6); animation: none; }
+.eeg-dot.offline    { background: #888; animation: none; }
+
+/* ============================================
+   WAITING PAGE — PLAYER BADGE
+   ============================================ */
+.waiting-player-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    justify-content: center;
+    margin-bottom: 0.75rem;
+}
+
+.badge-player {
+    background: linear-gradient(135deg, var(--accent-pink), #ff7bc5);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    padding: 0.3rem 0.9rem;
+    border-radius: 50px;
+}
+
+.badge-solo {
+    background: linear-gradient(135deg, #a855f7, #7c3aed);
+    color: #fff;
+    font-weight: 700;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    padding: 0.3rem 0.9rem;
+    border-radius: 50px;
+}
+
+.badge-nick {
+    font-family: var(--heading-font);
+    font-size: 1.1rem;
+    color: var(--accent-orange);
+    font-weight: 700;
+}
+
+/* ============================================
+   TASK — EEG SAVING OVERLAY
+   ============================================ */
+.eeg-saving-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 999;
+}
+
+.eeg-saving-box {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+    color: #fff;
+    font-family: 'Oxanium', sans-serif;
+    font-size: 1.1rem;
+    letter-spacing: 0.05em;
+}
+
+/* ============================================
+   SOLO PAGE
+   ============================================ */
+.solo-form-wrap {
+    max-width: 420px;
+    margin: 0 auto 2rem;
+}
+
+.solo-form {
+    border-color: #a855f7;
+}
+
+.solo-desc {
+    font-size: 0.78rem;
+    color: var(--secondary-text);
+    font-family: 'Courier New', Courier, monospace;
+    line-height: 1.6;
+    margin-top: 0.75rem;
+}
+
+.solo-actions {
+    text-align: center;
+}
+
+.flex-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.back-link {
+    color: var(--secondary-text);
+    font-size: 0.8rem;
+    text-decoration: none;
+    font-family: 'Courier New', Courier, monospace;
+    transition: color 0.2s;
+}
+
+.back-link:hover { color: var(--accent-pink); }
+
+.solo-link-row {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 1rem;
+}
+
+/* ============================================
+   SOLO RESULTS
+   ============================================ */
+.solo-result-icon {
+    margin: 1rem 0;
+}
+
+.solo-result-icon .heart-stars {
+    width: 100px;
+    height: auto;
+    color: #a855f7;
+}
+
+.solo-result-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.btn-graph-link {
+    text-decoration: none;
+}
+
+/* ============================================
+   RESULTS PAGE — GRAPH BUTTON
+   ============================================ */
+.results-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+}
+
+.btn-graph {
+    background: linear-gradient(135deg, #a855f7, #7c3aed) !important;
+    box-shadow: 0 4px 15px rgba(168, 85, 247, 0.35) !important;
+}
+
+.btn-graph:hover {
+    background: linear-gradient(135deg, #c084fc, #a855f7) !important;
+    box-shadow: 0 8px 25px rgba(168, 85, 247, 0.45) !important;
+}
+
+/* ============================================
+   FRIENDSHIP GRAPH PAGE
+   ============================================ */
+.graph-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.graph-legend {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.75rem;
+    color: var(--secondary-text);
+    font-family: 'Courier New', Courier, monospace;
+    flex-wrap: wrap;
+}
+
+.legend-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+}
+.legend-dot.paired { background: var(--accent-pink); }
+.legend-dot.solo   { background: #a855f7; border: 2px dashed #7c3aed; box-sizing: border-box; }
+
+.legend-line {
+    display: inline-block;
+    width: 24px;
+    height: 2px;
+    background: linear-gradient(to right, var(--accent-pink), var(--accent-orange));
+    border-radius: 1px;
+    flex-shrink: 0;
+}
+
+.graph-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.graph-btn {
+    background: var(--input-bg) !important;
+    color: var(--text-color) !important;
+    border: 1px solid var(--input-border) !important;
+    padding: 0.4rem 0.9rem !important;
+    font-size: 0.75rem !important;
+    border-radius: 50px !important;
+    box-shadow: none !important;
+    cursor: pointer;
+    transition: all 0.2s !important;
+}
+
+.graph-btn:hover {
+    background: var(--accent-pink) !important;
+    color: #fff !important;
+    border-color: var(--accent-pink) !important;
+    transform: none !important;
+}
+
+.graph-container {
+    width: 100%;
+    height: 480px;
+    border: 1px solid var(--input-border);
+    border-radius: 16px;
+    overflow: hidden;
+    position: relative;
+    background: var(--card-bg);
+}
+
+.graph-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--secondary-text);
+    font-size: 0.9rem;
+    font-family: 'Courier New', Courier, monospace;
+    text-align: center;
+    padding: 2rem;
+}
+
+#graph-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    cursor: grab;
+}
+
+#graph-svg:active { cursor: grabbing; }
+
+.graph-tooltip {
+    position: fixed;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 0.5rem 0.9rem;
+    font-size: 0.78rem;
+    font-family: 'Courier New', Courier, monospace;
+    color: var(--text-color);
+    pointer-events: none;
+    z-index: 1000;
+    max-width: 220px;
+    line-height: 1.5;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+}
+
+.graph-footer {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-top: 1.25rem;
+    flex-wrap: wrap;
+}
+
+.graph-footer a { text-decoration: none; }
+
+/* dark mode graph overrides */
+.dark-mode .graph-container {
+    border-color: #502040;
+}
+
+.dark-mode .graph-btn {
+    border-color: #502040 !important;
+}
+
+.dark-mode .graph-tooltip {
+    border-color: #502040;
+    box-shadow: 0 4px 16px rgba(255,71,200,0.1);
+}
+
+/* ============================================
+   RESPONSIVE — GRAPH
+   ============================================ */
+@media (max-width: 768px) {
+    .graph-container { height: 340px; }
+    .graph-toolbar { flex-direction: column; align-items: flex-start; }
+    .graph-footer { flex-direction: column; align-items: center; }
+}
+
+@media (max-height: 850px) {
+    .graph-container { height: 320px; }
+}
