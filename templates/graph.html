@@ -2,28 +2,66 @@
 
 {% block content %}
 <h2 class="animate-fade">Graf Przyjaźni Mózgów</h2>
-<p class="subtitle animate-fade">Krawędź łączy osoby o podobnych falach (podobieństwo ≥ 32.6%)</p>
+<p class="subtitle animate-fade">Kliknij węzeł by zobaczyć ranking podobieństwa</p>
 
 <div class="graph-toolbar animate-slide-1">
+  <div class="graph-search">
+    <input type="text" id="search-input" class="graph-search-input" placeholder="Szukaj gracza...">
+  </div>
   <div class="graph-legend">
     <span class="legend-dot paired"></span><span>Para</span>
     <span class="legend-dot solo"></span><span>Solo</span>
-    <span class="legend-line"></span><span>Podobieństwo EEG</span>
   </div>
   <div class="graph-actions">
-    <button type="button" id="btn-refresh" class="graph-btn">↺ Odśwież</button>
-    <button type="button" id="btn-reset" class="graph-btn">⊙ Wyśrodkuj</button>
+    <button type="button" id="btn-ranking" class="graph-btn">🏆</button>
+    <button type="button" id="btn-refresh" class="graph-btn">↺</button>
+    <button type="button" id="btn-reset" class="graph-btn">⊙</button>
   </div>
 </div>
 
-<div class="graph-container animate-slide-2" id="graph-wrap">
-  <div class="graph-empty" id="graph-empty" style="display:none;">
-    <p>Brak danych. Zarejestruj się i przeprowadź badanie.</p>
+<div class="graph-area animate-slide-2">
+  <div class="graph-container" id="graph-wrap">
+    <div class="graph-empty" id="graph-empty" style="display:none;">
+      <p>Brak danych. Zarejestruj się i przeprowadź badanie.</p>
+    </div>
+    <svg id="graph-svg"></svg>
   </div>
-  <svg id="graph-svg"></svg>
+
+  <!-- Ranking side panel -->
+  <div class="rank-panel" id="rank-panel" style="display:none;">
+    <div class="rank-header">
+      <span class="rank-nick" id="rank-nick">—</span>
+      <button type="button" class="rank-close" id="rank-close">✕</button>
+    </div>
+
+    <!-- EEG brain fingerprint canvas -->
+    <canvas id="eeg-canvas" class="eeg-viz-canvas" width="220" height="80"></canvas>
+    <div class="eeg-viz-label" id="eeg-viz-label">odcisk mózgu</div>
+
+    <!-- EEG band powers radar -->
+    <div class="bands-wrap" id="bands-wrap" style="display:none;">
+      <div class="bands-title">Pasma EEG</div>
+      <div class="bands-bars" id="bands-bars"></div>
+    </div>
+
+    <div class="rank-subtitle">Ranking podobieństwa EEG</div>
+    <ul class="rank-list" id="rank-list"></ul>
+    <div class="rank-empty" id="rank-empty" style="display:none;">
+      Brak innych uczestników do porównania.
+    </div>
+  </div>
 </div>
 
 <div class="graph-tooltip" id="graph-tooltip" style="display:none;"></div>
+
+<!-- Event ranking overlay -->
+<div class="evt-ranking" id="evt-ranking" style="display:none;">
+  <div class="evt-ranking-header">
+    <span>🏆 Ranking połączeń</span>
+    <button type="button" class="rank-close" id="evt-close">✕</button>
+  </div>
+  <ol class="evt-ranking-list" id="evt-ranking-list"></ol>
+</div>
 
 <div class="graph-footer animate-slide-3">
   <a href="{{ url_for('register') }}">
@@ -37,77 +75,325 @@
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <script>
 (function() {
-  const wrap   = document.getElementById('graph-wrap');
-  const empty  = document.getElementById('graph-empty');
-  const svgEl  = document.getElementById('graph-svg');
-  const tip    = document.getElementById('graph-tooltip');
+  const wrap  = document.getElementById('graph-wrap');
+  const empty = document.getElementById('graph-empty');
+  const svgEl = document.getElementById('graph-svg');
+  const tip   = document.getElementById('graph-tooltip');
+  const panel = document.getElementById('rank-panel');
+  const rankNick = document.getElementById('rank-nick');
+  const rankList = document.getElementById('rank-list');
+  const rankEmpty= document.getElementById('rank-empty');
+  const searchIn = document.getElementById('search-input');
+
   const isDark = localStorage.getItem('darkMode') === 'true';
 
-  // ── colour palette ────────────────────────────────────────────────────────
   const C = {
-    nodePaired:  isDark ? '#FF47C8' : '#FF47C8',
-    nodeSolo:    isDark ? '#a855f7' : '#9333ea',
-    nodeStroke:  isDark ? '#2a0a20' : '#ffffff',
-    edgeHigh:    isDark ? '#FF47C8' : '#E88D1A',
-    edgeLow:     isDark ? '#502040' : '#ffc5e8',
-    text:        isDark ? '#f0d0e0' : '#300D25',
-    bg:          isDark ? '#1a0a15' : '#ffffff',
-    glow:        isDark ? 'rgba(255,71,200,0.5)' : 'rgba(232,141,26,0.4)',
+    nodePaired: '#FF47C8',
+    nodeSolo:   '#a855f7',
+    nodeStroke: isDark ? '#2a0a20' : '#ffffff',
+    edgeHigh:   '#FF47C8',
+    edgeLow:    isDark ? '#502040' : '#ffc5e8',
+    text:       isDark ? '#f0d0e0' : '#300D25',
+    bg:         isDark ? '#1a0a15' : 'transparent',
+    glow:       'rgba(255,71,200,0.6)',
+    glowSolo:   'rgba(168,85,247,0.6)',
   };
 
-  // ── sizing ────────────────────────────────────────────────────────────────
   function getSize() {
     const r = wrap.getBoundingClientRect();
-    return { w: r.width, h: Math.max(r.height, 420) };
+    return { w: r.width || 600, h: Math.max(r.height || 460, 420) };
   }
 
-  const { w, h } = getSize();
+  let { w, h } = getSize();
+
   const svg = d3.select(svgEl)
     .attr('width', w).attr('height', h)
-    .style('background', C.bg)
-    .style('border-radius', '16px');
+    .style('background', C.bg);
 
   const defs = svg.append('defs');
 
-  // Glow filter
-  const glow = defs.append('filter').attr('id', 'glow').attr('x', '-50%').attr('y', '-50%').attr('width', '200%').attr('height', '200%');
-  glow.append('feGaussianBlur').attr('stdDeviation', '4').attr('result', 'blur');
-  const feMerge = glow.append('feMerge');
-  feMerge.append('feMergeNode').attr('in', 'blur');
-  feMerge.append('feMergeNode').attr('in', 'SourceGraphic');
-
-  // Arrow marker
-  defs.append('marker')
-    .attr('id', 'arrow')
-    .attr('viewBox', '0 -5 10 10').attr('refX', 20).attr('refY', 0)
-    .attr('markerWidth', 6).attr('markerHeight', 6).attr('orient', 'auto')
-    .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', C.edgeHigh).attr('opacity', 0.5);
-
-  // Gradient for edges
-  function makeGrad(id, c1, c2) {
-    const g = defs.append('linearGradient').attr('id', id).attr('gradientUnits', 'userSpaceOnUse');
-    g.append('stop').attr('offset', '0%').attr('stop-color', c1);
-    g.append('stop').attr('offset', '100%').attr('stop-color', c2);
-    return g;
+  // ── glow filters ────────────────────────────────────────────────────────────
+  function makeGlowFilter(id, color, blur) {
+    const f = defs.append('filter').attr('id', id)
+      .attr('x', '-60%').attr('y', '-60%').attr('width', '220%').attr('height', '220%');
+    f.append('feGaussianBlur').attr('in', 'SourceGraphic').attr('stdDeviation', blur).attr('result', 'blur');
+    const flood = f.append('feFlood').attr('flood-color', color).attr('flood-opacity', 0.8).attr('result', 'color');
+    const composite = f.append('feComposite').attr('in', 'color').attr('in2', 'blur').attr('operator', 'in').attr('result', 'glow');
+    const merge = f.append('feMerge');
+    merge.append('feMergeNode').attr('in', 'glow');
+    merge.append('feMergeNode').attr('in', 'SourceGraphic');
   }
+  makeGlowFilter('glow-pink',   C.glow,     5);
+  makeGlowFilter('glow-purple', C.glowSolo, 5);
+  makeGlowFilter('glow-sel',    '#ffffff',  8);
 
+  // ── zoom group ──────────────────────────────────────────────────────────────
   const zoomG = svg.append('g').attr('class', 'zoom-layer');
 
-  const zoom = d3.zoom()
-    .scaleExtent([0.3, 4])
+  const zoom = d3.zoom().scaleExtent([0.2, 5])
     .on('zoom', e => zoomG.attr('transform', e.transform));
   svg.call(zoom);
 
-  document.getElementById('btn-reset').addEventListener('click', () => {
-    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity);
+  document.getElementById('btn-reset').addEventListener('click', () =>
+    svg.transition().duration(500).call(zoom.transform, d3.zoomIdentity.translate(w/2, h/2).scale(1))
+  );
+
+  // ── state ───────────────────────────────────────────────────────────────────
+  let sim, linkSel, nodeG;
+  let allNodes = [], allLinks = [];
+  let selectedId = null;
+
+  // ── EEG brain fingerprint visualisation ─────────────────────────────────────
+  const eegCanvas  = document.getElementById('eeg-canvas');
+  const eegLabel   = document.getElementById('eeg-viz-label');
+  const eegCtx     = eegCanvas.getContext('2d');
+  let   eegAnimId  = null;
+  let   eegParams  = null;   // 32 floats in [0,1]
+  let   eegT       = 0;
+
+  // Derive 4 overlapping sine waves from the 32-param embedding block
+  function buildWaves(params) {
+    const waves = [];
+    for (let i = 0; i < 4; i++) {
+      waves.push({
+        freq:  0.6 + params[i * 8]     * 2.4,   // 0.6–3 Hz relative
+        amp:   0.12 + params[i * 8 + 1] * 0.28,  // amplitude fraction of height
+        phase: params[i * 8 + 2] * Math.PI * 2,
+        speed: 0.012 + params[i * 8 + 3] * 0.018,
+        color: i === 0 ? 'rgba(255,71,200,{a})'
+             : i === 1 ? 'rgba(168,85,247,{a})'
+             : i === 2 ? 'rgba(255,160,80,{a})'
+             :            'rgba(80,200,255,{a})',
+        alpha: 0.55 + params[i * 8 + 4] * 0.35,
+      });
+    }
+    return waves;
+  }
+
+  function drawEEG() {
+    const cw = eegCanvas.width, ch = eegCanvas.height;
+    eegCtx.clearRect(0, 0, cw, ch);
+
+    // faint grid lines
+    eegCtx.strokeStyle = 'rgba(255,71,200,0.07)';
+    eegCtx.lineWidth   = 1;
+    for (let y = ch * 0.25; y < ch; y += ch * 0.25) {
+      eegCtx.beginPath(); eegCtx.moveTo(0, y); eegCtx.lineTo(cw, y); eegCtx.stroke();
+    }
+    for (let x = cw / 4; x < cw; x += cw / 4) {
+      eegCtx.beginPath(); eegCtx.moveTo(x, 0); eegCtx.lineTo(x, ch); eegCtx.stroke();
+    }
+
+    if (!eegParams) { eegAnimId = requestAnimationFrame(drawEEG); return; }
+    const waves = buildWaves(eegParams);
+    const midY  = ch / 2;
+
+    waves.forEach(w => {
+      eegCtx.beginPath();
+      eegCtx.lineWidth   = 1.5;
+      eegCtx.strokeStyle = w.color.replace('{a}', w.alpha);
+      for (let px = 0; px <= cw; px++) {
+        const t  = (px / cw) * Math.PI * 2 * w.freq + w.phase + eegT * w.speed * 60;
+        const py = midY + Math.sin(t) * ch * w.amp;
+        px === 0 ? eegCtx.moveTo(px, py) : eegCtx.lineTo(px, py);
+      }
+      eegCtx.stroke();
+    });
+
+    // scanline cursor
+    const cx = ((eegT * 2) % 1) * cw;
+    const grad = eegCtx.createLinearGradient(cx - 4, 0, cx + 4, 0);
+    grad.addColorStop(0, 'rgba(255,71,200,0)');
+    grad.addColorStop(0.5, 'rgba(255,71,200,0.6)');
+    grad.addColorStop(1, 'rgba(255,71,200,0)');
+    eegCtx.fillStyle = grad;
+    eegCtx.fillRect(cx - 4, 0, 8, ch);
+
+    eegT += 0.016;
+    eegAnimId = requestAnimationFrame(drawEEG);
+  }
+
+  // ── Band powers display ───────────────────────────────────────────────────────
+  const BANDS     = ['delta','theta','alpha','beta','gamma'];
+  const BAND_COLS = { delta:'#a78bfa', theta:'#60a5fa', alpha:'#34d399',
+                      beta:'#fbbf24', gamma:'#f87171' };
+  const bandsWrap = document.getElementById('bands-wrap');
+  const bandsBars = document.getElementById('bands-bars');
+
+  function showBands(userId) {
+    bandsWrap.style.display = 'none';
+    fetch(`/api/user_bands/${userId}`)
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) return;
+        bandsBars.innerHTML = BANDS.map(b => {
+          const pct = Math.round((d[b] || 0) * 100);
+          return `<div class="band-row">
+            <span class="band-name">${b}</span>
+            <div class="band-bar-wrap">
+              <div class="band-bar" style="width:${pct}%;background:${BAND_COLS[b]}"></div>
+            </div>
+            <span class="band-pct">${pct}%</span>
+          </div>`;
+        }).join('');
+        bandsWrap.style.display = 'block';
+      }).catch(() => {});
+  }
+
+  // ── Sound from embedding (Web Audio API) ─────────────────────────────────────
+  let audioCtx = null;
+  function playEmbeddingChord(params) {
+    if (!params || !window.AudioContext && !window.webkitAudioContext) return;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // 4 overtone frequencies derived from embedding [0,1] → 150–900 Hz
+    const freqs = [
+      150 + params[0]  * 350,
+      200 + params[8]  * 400,
+      250 + params[16] * 300,
+      300 + params[24] * 500,
+    ];
+    const now = audioCtx.currentTime;
+    freqs.forEach((f, i) => {
+      const osc  = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = ['sine','sine','triangle','sine'][i];
+      osc.frequency.setValueAtTime(f, now);
+      gain.gain.setValueAtTime(0.06, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 1.8);
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.start(now);
+      osc.stop(now + 1.8);
+    });
+  }
+
+  // ── Event ranking ─────────────────────────────────────────────────────────────
+  const evtRanking = document.getElementById('evt-ranking');
+  const evtList    = document.getElementById('evt-ranking-list');
+  document.getElementById('btn-ranking').addEventListener('click', () => {
+    fetch('/api/ranking')
+      .then(r => r.json())
+      .then(d => {
+        evtList.innerHTML = d.ranking.map((u, i) => `
+          <li class="evt-rank-item">
+            <span class="evt-pos">${i+1}</span>
+            <span class="evt-nick">${u.nickname}${u.is_solo ? ' <em>(solo)</em>' : ''}</span>
+            <span class="evt-conn">${u.connections} 🔗</span>
+          </li>`).join('');
+        evtRanking.style.display = 'block';
+      }).catch(() => {});
+  });
+  document.getElementById('evt-close').addEventListener('click', () => {
+    evtRanking.style.display = 'none';
   });
 
-  // ── simulation ────────────────────────────────────────────────────────────
-  let sim, linkSel, nodeSel, labelSel;
+  function startEEGViz(userId, isSolo) {
+    if (eegAnimId) { cancelAnimationFrame(eegAnimId); eegAnimId = null; }
+    eegParams = null;
+    eegT      = 0;
+    eegLabel.textContent = 'ładowanie odcisku...';
+    eegAnimId = requestAnimationFrame(drawEEG);
 
+    fetch(`/api/user_viz/${userId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.params) {
+          eegParams = data.params;
+          eegLabel.textContent = isSolo ? '🔮 odcisk mózgu (solo)' : '🧠 odcisk mózgu';
+          playEmbeddingChord(data.params);
+        }
+      })
+      .catch(() => { eegLabel.textContent = 'brak danych'; });
+  }
+
+  function stopEEGViz() {
+    if (eegAnimId) { cancelAnimationFrame(eegAnimId); eegAnimId = null; }
+    eegCtx.clearRect(0, 0, eegCanvas.width, eegCanvas.height);
+    eegParams = null;
+  }
+
+  // ── search ──────────────────────────────────────────────────────────────────
+  searchIn.addEventListener('input', applySearch);
+
+  function applySearch() {
+    const q = searchIn.value.trim().toLowerCase();
+    if (!nodeG) return;
+    nodeG.each(function(d) {
+      const match = !q || d.nickname.toLowerCase().includes(q);
+      d3.select(this).style('opacity', match ? 1 : 0.15);
+    });
+    if (linkSel) {
+      linkSel.style('opacity', d => {
+        if (!q) return null;
+        const sn = (typeof d.source === 'object' ? d.source.nickname : allNodes.find(n=>n.id===d.source)?.nickname)||'';
+        const tn = (typeof d.target === 'object' ? d.target.nickname : allNodes.find(n=>n.id===d.target)?.nickname)||'';
+        return (sn.toLowerCase().includes(q) || tn.toLowerCase().includes(q)) ? 1 : 0.05;
+      });
+    }
+  }
+
+  // ── ranking panel ────────────────────────────────────────────────────────────
+  function openPanel(d) {
+    selectedId = d.id;
+    rankNick.textContent = d.nickname + (d.is_solo ? ' (solo)' : '');
+    startEEGViz(d.id, d.is_solo);
+    showBands(d.id);
+    rankList.innerHTML = '';
+
+    const neighbors = d.neighbors || [];
+    if (!neighbors.length) {
+      rankEmpty.style.display = 'block';
+    } else {
+      rankEmpty.style.display = 'none';
+      neighbors.forEach((nb, i) => {
+        const li = document.createElement('li');
+        li.className = 'rank-item' + (nb.linked ? ' rank-linked' : '');
+        const pct = Math.round(nb.similarity * 100);
+        const bar = Math.round(nb.score);
+        li.innerHTML = `
+          <span class="rank-pos">${i+1}</span>
+          <span class="rank-name">${nb.nickname}</span>
+          <span class="rank-score">${nb.score}%</span>
+          <div class="rank-bar-wrap">
+            <div class="rank-bar" style="width:${bar}%"></div>
+          </div>`;
+        li.addEventListener('click', () => {
+          const target = allNodes.find(n => n.id === nb.id);
+          if (target) openPanel(target);
+        });
+        rankList.appendChild(li);
+      });
+    }
+    panel.style.display = 'flex';
+    highlightSelected();
+  }
+
+  function closePanel() {
+    selectedId = null;
+    panel.style.display = 'none';
+    stopEEGViz();
+    highlightSelected();
+  }
+
+  document.getElementById('rank-close').addEventListener('click', closePanel);
+
+  function highlightSelected() {
+    if (!nodeG) return;
+    nodeG.select('circle.node-main')
+      .style('filter', d => {
+        if (d.id === selectedId) return 'url(#glow-sel)';
+        return d.is_solo ? 'url(#glow-purple)' : 'url(#glow-pink)';
+      })
+      .attr('r', d => d.id === selectedId ? 24 : 18);
+  }
+
+  // ── build graph ──────────────────────────────────────────────────────────────
   function buildGraph(data) {
-    const { nodes, links } = data;
-    if (!nodes.length) {
+    allNodes = data.nodes || [];
+    allLinks = data.links || [];
+    const threshold = data.threshold || 0.3258;
+
+    if (!allNodes.length) {
       empty.style.display = 'flex';
       svgEl.style.display = 'none';
       return;
@@ -115,154 +401,170 @@
     empty.style.display = 'none';
     svgEl.style.display = '';
 
-    // Create per-edge gradient IDs
-    links.forEach((l, i) => {
+    // Per-edge gradient defs
+    defs.selectAll('linearGradient').remove();
+    allLinks.forEach((l, i) => {
       const id = `eg${i}`;
       l._gradId = id;
-      const src = nodes.find(n => n.id === l.source || n.id === l.source.id);
-      const tgt = nodes.find(n => n.id === l.target || n.id === l.target.id);
-      const c1 = src && src.is_solo ? C.nodeSolo : C.nodePaired;
-      const c2 = tgt && tgt.is_solo ? C.nodeSolo : C.nodePaired;
-      makeGrad(id, c1, c2);
+      const src = allNodes.find(n => n.id === (l.source.id ?? l.source));
+      const tgt = allNodes.find(n => n.id === (l.target.id ?? l.target));
+      const c1  = src?.is_solo ? C.nodeSolo : C.nodePaired;
+      const c2  = tgt?.is_solo ? C.nodeSolo : C.nodePaired;
+      const g   = defs.append('linearGradient').attr('id', id).attr('gradientUnits', 'userSpaceOnUse');
+      g.append('stop').attr('offset', '0%').attr('stop-color', c1);
+      g.append('stop').attr('offset', '100%').attr('stop-color', c2);
     });
 
     zoomG.selectAll('*').remove();
+    selectedId = null;
+    panel.style.display = 'none';
 
     // Links
     linkSel = zoomG.append('g').attr('class', 'links')
-      .selectAll('line').data(links).join('line')
+      .selectAll('line').data(allLinks).join('line')
         .attr('stroke', d => `url(#${d._gradId})`)
-        .attr('stroke-width', d => 1 + (d.similarity - 0.3258) * 8)
-        .attr('stroke-opacity', d => 0.35 + d.similarity * 0.5)
+        .attr('stroke-width', d => 1.5 + (d.similarity - threshold) * 10)
+        .attr('stroke-opacity', d => 0.3 + d.similarity * 0.55)
         .attr('stroke-linecap', 'round');
 
-    // Nodes
-    const nodeG = zoomG.append('g').attr('class', 'nodes')
-      .selectAll('g').data(nodes).join('g')
+    // Node groups
+    nodeG = zoomG.append('g').attr('class', 'nodes')
+      .selectAll('g').data(allNodes).join('g')
         .attr('class', 'node-group')
+        .style('cursor', 'pointer')
         .call(d3.drag()
-          .on('start', dragStart)
-          .on('drag',  dragged)
-          .on('end',   dragEnd));
+          .on('start', (e, d) => { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y; })
+          .on('drag',  (e, d) => { d.fx=e.x; d.fy=e.y; })
+          .on('end',   (e, d) => { if (!e.active) sim.alphaTarget(0); d.fx=null; d.fy=null; }))
+        .on('click', (event, d) => { event.stopPropagation(); openPanel(d); });
 
-    nodeSel = nodeG.append('circle')
+    // Outer glow halo
+    nodeG.append('circle')
+      .attr('class', 'node-halo')
+      .attr('r', 27)
+      .attr('fill', 'none')
+      .attr('stroke', d => d.is_solo ? C.nodeSolo : C.nodePaired)
+      .attr('stroke-width', 1.5)
+      .attr('stroke-opacity', 0.2);
+
+    // Main circle
+    nodeG.append('circle')
+      .attr('class', 'node-main')
       .attr('r', 18)
       .attr('fill', d => d.is_solo ? C.nodeSolo : C.nodePaired)
       .attr('stroke', C.nodeStroke)
-      .attr('stroke-width', d => d.is_solo ? 3 : 2)
+      .attr('stroke-width', d => d.is_solo ? 2.5 : 1.5)
       .attr('stroke-dasharray', d => d.is_solo ? '5 3' : 'none')
-      .style('cursor', 'grab')
-      .style('filter', 'url(#glow)');
+      .style('filter', d => d.is_solo ? 'url(#glow-purple)' : 'url(#glow-pink)');
 
-    // Inner pulse ring
-    nodeG.append('circle')
-      .attr('r', 22)
-      .attr('fill', 'none')
-      .attr('stroke', d => d.is_solo ? C.nodeSolo : C.nodePaired)
-      .attr('stroke-width', 1)
-      .attr('stroke-opacity', 0.25);
+    // Initials inside node
+    nodeG.append('text')
+      .attr('class', 'node-initial')
+      .text(d => d.nickname.charAt(0).toUpperCase())
+      .attr('text-anchor', 'middle')
+      .attr('dominant-baseline', 'central')
+      .attr('font-family', 'Oxanium, sans-serif')
+      .attr('font-size', '13px')
+      .attr('font-weight', '700')
+      .attr('fill', '#ffffff')
+      .attr('pointer-events', 'none');
 
-    labelSel = nodeG.append('text')
+    // Label below
+    nodeG.append('text')
+      .attr('class', 'node-label')
       .text(d => d.nickname)
       .attr('text-anchor', 'middle')
-      .attr('dy', '2.4em')
+      .attr('dy', '2.6em')
       .attr('font-family', 'Oxanium, sans-serif')
       .attr('font-size', '11px')
       .attr('font-weight', '600')
       .attr('fill', C.text)
       .attr('pointer-events', 'none');
 
-    // Hover interactions
+    // Hover
     nodeG
       .on('mouseover', function(event, d) {
-        d3.select(this).select('circle').attr('r', 23).attr('stroke-width', 3);
-        const conns = links.filter(l =>
-          (l.source.id || l.source) === d.id || (l.target.id || l.target) === d.id
-        );
-        const lines = conns.map(l =>
-          `${l.score}% z ${nodes.find(n => n.id === ((l.source.id || l.source) === d.id ? (l.target.id || l.target) : (l.source.id || l.source)))?.nickname || '?'}`
-        ).join('<br>');
-        tip.innerHTML = `<strong>${d.nickname}</strong>${d.is_solo ? ' <em>(solo)</em>' : ''}<br>${lines || 'brak połączeń'}`;
+        if (d.id === selectedId) return;
+        d3.select(this).select('.node-main').attr('r', 22);
+        d3.select(this).select('.node-halo').attr('stroke-opacity', 0.5);
+        const linkedCnt = allLinks.filter(l =>
+          (l.source.id ?? l.source) === d.id || (l.target.id ?? l.target) === d.id
+        ).length;
+        tip.innerHTML = `<strong>${d.nickname}</strong>${d.is_solo ? ' <em>(solo)</em>' : ''}<br>
+          ${linkedCnt} połączenie${linkedCnt === 1 ? '' : linkedCnt < 5 ? 'a' : 'ń'} · kliknij po ranking`;
         tip.style.display = 'block';
       })
-      .on('mousemove', event => {
-        tip.style.left = (event.pageX + 14) + 'px';
-        tip.style.top  = (event.pageY - 10) + 'px';
-      })
-      .on('mouseout', function() {
-        d3.select(this).select('circle').attr('r', 18).attr('stroke-width', d => d.is_solo ? 3 : 2);
+      .on('mousemove', e => { tip.style.left=(e.pageX+14)+'px'; tip.style.top=(e.pageY-10)+'px'; })
+      .on('mouseout', function(event, d) {
+        if (d.id === selectedId) return;
+        d3.select(this).select('.node-main').attr('r', 18);
+        d3.select(this).select('.node-halo').attr('stroke-opacity', 0.2);
         tip.style.display = 'none';
       });
 
     linkSel
       .on('mouseover', function(event, d) {
-        d3.select(this).attr('stroke-opacity', 1).attr('stroke-width', d => 3 + (d.similarity - 0.3258) * 8);
-        const sname = (typeof d.source === 'object' ? d.source.nickname : nodes.find(n => n.id === d.source)?.nickname) || '?';
-        const tname = (typeof d.target === 'object' ? d.target.nickname : nodes.find(n => n.id === d.target)?.nickname) || '?';
-        tip.innerHTML = `<strong>${sname}</strong> & <strong>${tname}</strong><br>Podobieństwo: ${d.score}%`;
+        d3.select(this).attr('stroke-opacity', 1);
+        const sn = (typeof d.source==='object'?d.source.nickname:allNodes.find(n=>n.id===d.source)?.nickname)||'?';
+        const tn = (typeof d.target==='object'?d.target.nickname:allNodes.find(n=>n.id===d.target)?.nickname)||'?';
+        tip.innerHTML = `<strong>${sn}</strong> ↔ <strong>${tn}</strong><br>Podobieństwo: <b>${d.score}%</b>`;
         tip.style.display = 'block';
       })
-      .on('mousemove', event => {
-        tip.style.left = (event.pageX + 14) + 'px';
-        tip.style.top  = (event.pageY - 10) + 'px';
-      })
+      .on('mousemove', e => { tip.style.left=(e.pageX+14)+'px'; tip.style.top=(e.pageY-10)+'px'; })
       .on('mouseout', function(event, d) {
-        d3.select(this)
-          .attr('stroke-opacity', 0.35 + d.similarity * 0.5)
-          .attr('stroke-width', 1 + (d.similarity - 0.3258) * 8);
+        d3.select(this).attr('stroke-opacity', 0.3 + d.similarity * 0.55);
         tip.style.display = 'none';
       });
 
-    // Force simulation
+    // Click on background closes panel
+    svg.on('click', closePanel);
+
+    // ── Force simulation ────────────────────────────────────────────────────────
     if (sim) sim.stop();
-    sim = d3.forceSimulation(nodes)
-      .force('link', d3.forceLink(links).id(d => d.id)
-        .strength(d => d.similarity * 0.4)
-        .distance(d => 180 - d.similarity * 120))
-      .force('charge', d3.forceManyBody().strength(-300))
-      .force('center', d3.forceCenter(w / 2, h / 2))
-      .force('collide', d3.forceCollide(35))
-      .alphaDecay(0.025)
+
+    const isSingle = allNodes.length === 1;
+
+    sim = d3.forceSimulation(allNodes)
+      .force('link', allLinks.length
+        ? d3.forceLink(allLinks).id(d => d.id)
+            .strength(d => d.similarity * 0.5)
+            .distance(d => 200 - d.similarity * 130)
+        : null)
+      .force('charge', d3.forceManyBody().strength(isSingle ? 0 : -350))
+      .force('center', d3.forceCenter(w/2, h/2).strength(isSingle ? 1 : 0.3))
+      .force('collide', d3.forceCollide(40))
+      .alphaDecay(0.022)
       .on('tick', ticked);
+
+    // For a single node: pin to centre immediately
+    if (isSingle) {
+      allNodes[0].x = w/2;
+      allNodes[0].y = h/2;
+    }
   }
 
   function ticked() {
-    linkSel
+    if (linkSel) linkSel
       .attr('x1', d => d.source.x).attr('y1', d => d.source.y)
       .attr('x2', d => d.target.x).attr('y2', d => d.target.y);
-    zoomG.selectAll('.node-group')
-      .attr('transform', d => `translate(${d.x},${d.y})`);
+    if (nodeG) nodeG.attr('transform', d => `translate(${d.x ?? w/2},${d.y ?? h/2})`);
   }
 
-  function dragStart(event, d) {
-    if (!event.active) sim.alphaTarget(0.3).restart();
-    d.fx = d.x; d.fy = d.y;
-  }
-  function dragged(event, d) { d.fx = event.x; d.fy = event.y; }
-  function dragEnd(event, d) {
-    if (!event.active) sim.alphaTarget(0);
-    d.fx = null; d.fy = null;
-  }
-
-  // ── load data ─────────────────────────────────────────────────────────────
+  // ── load ────────────────────────────────────────────────────────────────────
   function load() {
     fetch('/api/graph_data')
       .then(r => r.json())
       .then(buildGraph)
-      .catch(() => {
-        empty.style.display = 'flex';
-        svgEl.style.display = 'none';
-      });
+      .catch(() => { empty.style.display='flex'; svgEl.style.display='none'; });
   }
 
   load();
   document.getElementById('btn-refresh').addEventListener('click', load);
 
-  // Resize
   window.addEventListener('resize', () => {
-    const { w: nw, h: nh } = getSize();
-    svg.attr('width', nw).attr('height', nh);
-    if (sim) sim.force('center', d3.forceCenter(nw/2, nh/2)).alpha(0.1).restart();
+    ({ w, h } = getSize());
+    svg.attr('width', w).attr('height', h);
+    if (sim) sim.force('center', d3.forceCenter(w/2, h/2)).alpha(0.15).restart();
   });
 })();
 </script>

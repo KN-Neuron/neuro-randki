@@ -8,6 +8,22 @@ NUM_MODEL_CHANNELS = 4
 DEFAULT_SR = 250
 CALIBRATION_SEC = 3  # seconds of signal used for channel ranking
 
+# ── BrainAccess core — init only once ─────────────────────────────────────────
+_core_ready = False
+_core_lock  = threading.Lock()
+
+def _ensure_core():
+    global _core_ready
+    with _core_lock:
+        if not _core_ready:
+            from brainaccess import core
+            core.init()
+            _core_ready = True
+
+# ── BT scan — one at a time, cached ───────────────────────────────────────────
+_scan_lock    = threading.Lock()
+_scan_cache: list = []
+
 # ── per-device state ──────────────────────────────────────────────────────────
 # key: device name string
 # value: {mgr, sr, n_eeg, channels, connected, battery}
@@ -20,21 +36,38 @@ _dev_lock = threading.Lock()
 _sessions: dict = {}
 _sess_lock = threading.Lock()
 
+# ── live preview buffer (written by calibration + recording callbacks) ─────────
+# key: device_name → list of (n_eeg, T) chunks, capped at ~3 s
+_live: dict = {}
+_live_lock = threading.Lock()
+_LIVE_MAX_SAMPLES = 750  # 3 s @ 250 Hz
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  SCANNING
 # ─────────────────────────────────────────────────────────────────────────────
 
 def scan_devices() -> list[dict]:
-    """Scan Bluetooth for BrainAccess devices. Returns [{name: str}]."""
+    """
+    Scan Bluetooth for BrainAccess devices.  Only one scan runs at a time;
+    concurrent callers get the last cached result immediately.
+    Returns [{name: str}].
+    """
+    global _scan_cache
+    if not _scan_lock.acquire(blocking=False):
+        # Another scan in progress — return cached result so the caller isn't blocked
+        return list(_scan_cache)
     try:
         from brainaccess import core
-        core.init()
+        _ensure_core()
         found = core.scan()
-        return [{'name': d.name} for d in found]
+        _scan_cache = [{'name': d.name} for d in found]
+        return list(_scan_cache)
     except Exception as exc:
         print(f'[EEG] scan error: {exc}')
-        return []
+        return list(_scan_cache)
+    finally:
+        _scan_lock.release()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -58,7 +91,7 @@ def connect_device(device_name: str) -> dict:
         from brainaccess.core.gain_mode import GainMode
         import brainaccess.core.eeg_channel as eeg_ch
 
-        core.init()
+        _ensure_core()
         found = core.scan()
         port = next((d.name for d in found if device_name in d.name), None)
         if port is None:
@@ -162,8 +195,18 @@ def calibrate_channels(device_name: str,
     lock = threading.Lock()
 
     def _cb(chunk, chunk_size):
+        arr = np.asarray(chunk, dtype=np.float64)
+        if arr.ndim == 1:
+            arr = arr.reshape(-1, n_eeg).T
+        arr = arr[:n_eeg]
+        if arr.size == 0 or arr.shape[1] == 0:
+            return
         with lock:
-            buf.append(chunk[:n_eeg].copy())
+            buf.append(arr.copy())
+        with _live_lock:
+            _live.setdefault(device_name, []).append(arr.astype(np.float32).copy())
+            while sum(a.shape[1] for a in _live[device_name]) > _LIVE_MAX_SAMPLES:
+                _live[device_name].pop(0)
 
     try:
         mgr.set_callback_chunk(_cb)
@@ -177,7 +220,7 @@ def calibrate_channels(device_name: str,
     with lock:
         if not buf:
             return {'error': 'no data collected'}
-        raw = np.hstack(buf).astype(np.float64)   # (n_eeg, T)
+        raw = np.concatenate(buf, axis=1).astype(np.float64)   # (n_eeg, T)
 
     filtered   = _bandpass(raw, sr)
     variances  = np.var(filtered, axis=1)          # one value per channel
@@ -215,10 +258,20 @@ def calibrate_channels(device_name: str,
 
 def _make_cb(user_id: int, n_eeg: int):
     def _cb(chunk, chunk_size):
+        arr = np.asarray(chunk, dtype=np.float32)
+        if arr.ndim == 1:
+            arr = arr.reshape(-1, n_eeg).T
+        arr = arr[:n_eeg]
+        if arr.size == 0 or arr.shape[1] == 0:
+            return
         with _sess_lock:
             sess = _sessions.get(user_id)
             if sess and sess['active']:
-                sess['data'].append(chunk[:n_eeg].copy())
+                sess['data'].append(arr.copy())
+        with _live_lock:
+            _live.setdefault(device_name, []).append(arr.copy())
+            while sum(a.shape[1] for a in _live[device_name]) > _LIVE_MAX_SAMPLES:
+                _live[device_name].pop(0)
     return _cb
 
 
@@ -280,16 +333,35 @@ def stop_recording(user_id: int) -> np.ndarray:
     with _sess_lock:
         sess = _sessions.pop(user_id, None)
 
+    MIN_SAMPLES = DEFAULT_SR * 5  # at least 5 seconds
+
     if sess and sess['data']:
-        raw   = np.hstack(sess['data']).astype(np.float32)  # (n_eeg, T)
+        raw = np.concatenate(sess['data'], axis=1).astype(np.float32)  # (n_eeg, T)
         valid = [c for c in channels if c < raw.shape[0]]
         if len(valid) < NUM_MODEL_CHANNELS:
             valid = list(range(min(NUM_MODEL_CHANNELS, raw.shape[0])))
         print(f'[EEG] Stopped: user={user_id} {raw.shape[1]} samples ch={valid}')
-        return raw[valid, :]
+        if raw.shape[1] >= MIN_SAMPLES:
+            return raw[valid, :]
+        print(f'[EEG] Too few samples ({raw.shape[1]}) → mock')
 
     print(f'[EEG] No data for user {user_id} → mock')
     return _mock_signal()
+
+
+def get_live_samples(device_name: str, n: int = 250) -> list | None:
+    """Return last n samples per channel as a list-of-lists, or None if no data."""
+    with _live_lock:
+        chunks = _live.get(device_name, [])
+        if not chunks:
+            return None
+        data = np.concatenate(chunks, axis=1)   # (n_eeg, T)
+        data = data[:, -n:]
+        # z-score per channel for display
+        for i in range(data.shape[0]):
+            std = data[i].std() or 1.0
+            data[i] = (data[i] - data[i].mean()) / std
+        return data.tolist()
 
 
 def _mock_signal() -> np.ndarray:

@@ -56,7 +56,36 @@
     <button onclick="window.location.href='{{ url_for('register') }}'">ZAGRAJ PONOWNIE</button>
 </div>
 
+<!-- QR code linking to graph -->
+<div class="qr-section animate-slide-3">
+  <p class="qr-label">Zeskanuj by zobaczyć graf</p>
+  <div id="qr-code"></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 <script>
+  // QR code
+  new QRCode(document.getElementById('qr-code'), {
+    text: window.location.origin + '/graph',
+    width: 100, height: 100,
+    colorDark: '#FF47C8', colorLight: '#ffffff',
+    correctLevel: QRCode.CorrectLevel.M,
+  });
+
+  // Confetti for high scores
+  const SCORE = {{ score }};
+  if (SCORE >= 70) {
+    const end = Date.now() + 3500;
+    (function shoot() {
+      confetti({ particleCount: 6, angle: 60,  spread: 55, origin: {x:0},
+                 colors: ['#FF47C8','#a855f7','#E88D1A','#ff69b4'] });
+      confetti({ particleCount: 6, angle: 120, spread: 55, origin: {x:1},
+                 colors: ['#FF47C8','#a855f7','#E88D1A','#ff69b4'] });
+      if (Date.now() < end) requestAnimationFrame(shoot);
+    })();
+  }
+
     if (localStorage.getItem('darkMode') !== 'true') {
         function createHeart() {
             const heart = document.createElement('div');

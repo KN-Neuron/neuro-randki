@@ -76,3 +76,22 @@ def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
 
 
 SIMILARITY_THRESHOLD = 0.3258
+
+
+def compute_band_powers(signal: np.ndarray, sr: int = 250) -> dict:
+    """signal: (4, T) → relative power per EEG band, averaged across channels."""
+    from numpy.fft import rfft, rfftfreq
+    n = signal.shape[1]
+    if n < 2:
+        return dict(delta=0.2, theta=0.2, alpha=0.2, beta=0.2, gamma=0.2)
+    freqs = rfftfreq(n, d=1.0 / sr)
+    psd   = (np.abs(rfft(signal, axis=1)) ** 2).mean(axis=0)
+
+    def band(lo, hi):
+        m = (freqs >= lo) & (freqs < hi)
+        return float(psd[m].mean()) if m.any() else 0.0
+
+    raw   = dict(delta=band(0.5,4), theta=band(4,8),
+                 alpha=band(8,13),  beta=band(13,30), gamma=band(30,45))
+    total = sum(raw.values()) or 1.0
+    return {k: round(v / total, 4) for k, v in raw.items()}

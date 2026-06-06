@@ -16,6 +16,15 @@
     </div>
   </div>
 
+  <!-- Brain twin card -->
+  {% if user_id %}
+  <div class="twin-card animate-slide-1" id="twin-card" style="display:none;">
+    <div class="twin-label">🧬 Twój bliźniak mózgowy</div>
+    <div class="twin-name" id="twin-name">—</div>
+    <div class="twin-score" id="twin-score"></div>
+  </div>
+  {% endif %}
+
   <div class="solo-result-actions animate-slide-2">
     <a href="{{ graph_url }}" class="btn-graph-link">
       <button type="button">POKAŻ GRAF PRZYJAŹNI</button>
@@ -27,6 +36,19 @@
 </div>
 
 <script>
+  // Brain twin fetch
+  {% if user_id %}
+  fetch('/api/brain_twin/{{ user_id }}')
+    .then(r => r.json())
+    .then(d => {
+      if (d.twin) {
+        document.getElementById('twin-name').textContent  = d.twin.nickname + (d.twin.is_solo ? ' (solo)' : '');
+        document.getElementById('twin-score').textContent = `Zgodność fal: ${d.twin.score}%`;
+        document.getElementById('twin-card').style.display = 'block';
+      }
+    }).catch(() => {});
+  {% endif %}
+
   // Subtle brain-wave particles
   if (localStorage.getItem('darkMode') !== 'true') {
     function spawnParticle() {

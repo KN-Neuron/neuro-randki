@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2 class="animate-fade">Panel Admina</h2>
+
+{% if not auth %}
+<div class="hero-container animate-fade" style="max-width:400px;margin:0 auto;text-align:center;">
+  <p style="color:var(--secondary-text);margin-bottom:1.5rem;">Podaj hasło w URL: <code>/admin?pw=HASŁO</code></p>
+  <form method="get">
+    <input type="password" name="pw" placeholder="hasło..." class="form-input" autofocus>
+    <button type="submit" style="margin-top:1rem;">WEJDŹ</button>
+  </form>
+</div>
+
+{% else %}
+<div class="admin-toolbar animate-slide-1">
+  <span class="admin-stat">{{ total }} uczestników z embeddingiem</span>
+  <a href="/admin/export?pw={{ pw }}" class="graph-btn" style="text-decoration:none;">⬇ Eksportuj CSV</a>
+</div>
+
+<div class="admin-table-wrap animate-slide-2">
+  <table class="admin-table">
+    <thead>
+      <tr><th>#</th><th>Nick</th><th>Tryb</th><th>Embedding</th><th>Usuń</th></tr>
+    </thead>
+    <tbody>
+      {% for u in users %}
+      <tr class="{% if u.has_emb %}has-emb{% endif %}">
+        <td>{{ u.id }}</td>
+        <td>{{ u.nickname }}</td>
+        <td>{% if u.is_solo %}<span class="badge-solo-sm">solo</span>{% else %}<span class="badge-pair-sm">para</span>{% endif %}</td>
+        <td>{% if u.has_emb %}<span class="emb-ok">✓ OK</span>{% else %}<span class="emb-miss">✗ brak</span>{% endif %}</td>
+        <td>
+          <form method="post" action="/admin/delete/{{ u.id }}"
+                onsubmit="return confirm('Usunąć {{ u.nickname }}?')">
+            <input type="hidden" name="pw" value="{{ pw }}">
+            <button type="submit" class="admin-del-btn">✕</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="graph-footer animate-slide-3">
+  <a href="/graph"><button type="button">GRAF</button></a>
+  <a href="{{ url_for('register') }}"><button type="button">NOWA GRA</button></a>
+</div>
+{% endif %}
+{% endblock %}

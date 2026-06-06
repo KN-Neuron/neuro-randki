@@ -52,6 +52,14 @@
       Wybrane kanały: <span id="cal-ch-list" class="cal-ch-list"></span>
     </div>
     {% endif %}
+
+    <!-- Live EEG preview canvas (shown after calibration or in mock mode) -->
+    <div class="live-eeg-wrap" id="live-eeg-wrap" style="display:none;">
+      <canvas id="live-eeg-canvas" class="live-eeg-canvas"></canvas>
+      <div class="live-eeg-label">
+        <span class="live-dot"></span> live EEG
+      </div>
+    </div>
   </div>
 
   <!-- Countdown (hidden until start pressed) -->
@@ -168,12 +176,96 @@ if (DEVICE) {
       setStatus('Błąd kalibracji — tryb testowy', 'status-err');
     }
     enableStart();
+    showLiveEEG(DEVICE);
   }
 
   runCalibration();
 } else {
-  // No device assigned — just enable start immediately
-  // (no-op: button already enabled when no device)
+  // No device — show mock EEG waves immediately
+  showLiveEEG(null);
+}
+
+// ── Live EEG preview ─────────────────────────────────────────────────────────
+function showLiveEEG(deviceForFetch) {
+  const wrap   = document.getElementById('live-eeg-wrap');
+  const canvas = document.getElementById('live-eeg-canvas');
+  wrap.style.display = 'block';
+  canvas.width  = wrap.clientWidth  || 340;
+  canvas.height = 90;
+  const ctx = canvas.getContext('2d');
+
+  const COLORS = ['rgba(255,71,200,{a})','rgba(168,85,247,{a})',
+                  'rgba(255,160,80,{a})','rgba(80,200,255,{a})'];
+  let   channels = null;  // null → mock mode
+  let   offset   = 0;
+  let   animId   = null;
+
+  function mockChannel(t, i) {
+    // deterministic pseudo-random waves per channel index
+    return Math.sin(t * (1.2 + i * 0.7)) * 0.35
+         + Math.sin(t * (3.1 + i * 0.4)) * 0.15
+         + Math.sin(t * (0.4 + i * 0.2)) * 0.25;
+  }
+
+  function draw() {
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    // grid
+    ctx.strokeStyle = 'rgba(255,71,200,0.06)';
+    ctx.lineWidth = 1;
+    [0.25, 0.5, 0.75].forEach(f => {
+      ctx.beginPath(); ctx.moveTo(0, h*f); ctx.lineTo(w, h*f); ctx.stroke();
+    });
+
+    const N = channels ? channels[0].length : 200;
+    const nCh = channels ? channels.length : 4;
+    const mid = h / 2;
+    const amp = h * 0.18;
+    const t   = offset / 60;
+
+    for (let ci = 0; ci < nCh; ci++) {
+      const col = COLORS[ci % COLORS.length];
+      ctx.beginPath();
+      ctx.strokeStyle = col.replace('{a}', ci === 0 ? 0.9 : 0.45 - ci*0.05);
+      ctx.lineWidth = ci === 0 ? 2 : 1.2;
+      for (let px = 0; px < w; px++) {
+        let val;
+        if (channels) {
+          const idx = Math.floor((px / w) * N);
+          val = channels[ci][idx] * amp * 0.4;
+        } else {
+          val = mockChannel(t + px / w * 6, ci) * amp;
+        }
+        const py = mid + val;
+        px === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+
+    // scanline
+    const sx = ((offset * 0.3) % w);
+    const g  = ctx.createLinearGradient(sx-3, 0, sx+3, 0);
+    g.addColorStop(0, 'rgba(255,71,200,0)');
+    g.addColorStop(0.5, 'rgba(255,71,200,0.5)');
+    g.addColorStop(1, 'rgba(255,71,200,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(sx-3, 0, 6, h);
+
+    offset++;
+    animId = requestAnimationFrame(draw);
+  }
+
+  if (deviceForFetch) {
+    fetch(`/api/eeg/live?device=${encodeURIComponent(deviceForFetch)}`)
+      .then(r => r.json())
+      .then(d => { if (d.data) channels = d.data; })
+      .catch(() => {});
+  }
+
+  animId = requestAnimationFrame(draw);
+  // Stop when user navigates away
+  window.addEventListener('beforeunload', () => cancelAnimationFrame(animId));
 }
 </script>
 {% endblock %}

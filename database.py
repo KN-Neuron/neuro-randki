@@ -27,6 +27,7 @@ def init_db():
         'ALTER TABLE user ADD COLUMN embedding TEXT',
         'ALTER TABLE user ADD COLUMN is_solo INTEGER NOT NULL DEFAULT 0',
         'ALTER TABLE result ADD COLUMN similarity REAL',
+        'ALTER TABLE user ADD COLUMN band_powers TEXT',
     ]:
         try:
             db.execute(stmt)

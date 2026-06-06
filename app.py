@@ -9,7 +9,7 @@ from flask import (Flask, jsonify, redirect, render_template, request,
 
 from database import get_db, init_db
 import eeg as eeg_mod
-from model import get_embedding, cosine_sim, SIMILARITY_THRESHOLD
+from model import get_embedding, cosine_sim, SIMILARITY_THRESHOLD, compute_band_powers
 
 app = Flask(__name__)
 app.config['DATABASE'] = os.path.join(app.root_path, 'neuro_randki.db')
@@ -31,10 +31,11 @@ def _sim_to_score(sim: float) -> int:
 
 
 def _save_embedding(user_id: int, signal: np.ndarray):
-    emb = get_embedding(signal)
-    db = get_db()
-    db.execute('UPDATE user SET embedding = ? WHERE id = ?',
-               (json.dumps(emb.tolist()), user_id))
+    emb   = get_embedding(signal)
+    bands = compute_band_powers(signal)
+    db    = get_db()
+    db.execute('UPDATE user SET embedding = ?, band_powers = ? WHERE id = ?',
+               (json.dumps(emb.tolist()), json.dumps(bands), user_id))
     db.commit()
     return emb
 
@@ -202,6 +203,7 @@ def results():
 def solo_results():
     return render_template('solo_results.html',
                            nick=flask_session.get('solo_nick', 'Gracz'),
+                           user_id=flask_session.get('solo_user_id'),
                            graph_url=url_for('graph'))
 
 
@@ -303,23 +305,171 @@ def api_graph_data():
     nodes, embeddings = [], []
     for r in rows:
         nodes.append({'id': r['id'], 'nickname': r['nickname'],
-                      'is_solo': bool(r['is_solo'])})
+                      'is_solo': bool(r['is_solo']), 'neighbors': []})
         embeddings.append(np.array(json.loads(r['embedding']), dtype=np.float32))
 
     links = []
+    # All pairwise similarities — links only above threshold, neighbors always
+    sim_matrix = {}
     for i in range(len(nodes)):
         for j in range(i + 1, len(nodes)):
-            sim = cosine_sim(embeddings[i], embeddings[j])
-            if sim >= SIMILARITY_THRESHOLD:
+            sim   = cosine_sim(embeddings[i], embeddings[j])
+            score = _sim_to_score(sim)
+            sim_matrix[(i, j)] = (sim, score)
+
+            linked = sim >= SIMILARITY_THRESHOLD
+            if linked:
                 links.append({
-                    'source': nodes[i]['id'],
-                    'target': nodes[j]['id'],
+                    'source':     nodes[i]['id'],
+                    'target':     nodes[j]['id'],
                     'similarity': round(sim, 4),
-                    'score':      _sim_to_score(sim),
+                    'score':      score,
                 })
+
+            # Bidirectional neighbor entries for ranking panel
+            nodes[i]['neighbors'].append({
+                'id': nodes[j]['id'], 'nickname': nodes[j]['nickname'],
+                'score': score, 'similarity': round(sim, 4), 'linked': linked,
+            })
+            nodes[j]['neighbors'].append({
+                'id': nodes[i]['id'], 'nickname': nodes[i]['nickname'],
+                'score': score, 'similarity': round(sim, 4), 'linked': linked,
+            })
+
+    # Sort each node's neighbors by similarity descending
+    for n in nodes:
+        n['neighbors'].sort(key=lambda x: -x['similarity'])
 
     return jsonify(nodes=nodes, links=links, threshold=SIMILARITY_THRESHOLD)
 
 
+@app.route('/api/eeg/live')
+def api_eeg_live():
+    device  = request.args.get('device', '')
+    samples = eeg_mod.get_live_samples(device, 250)
+    if samples is None:
+        return jsonify(data=None)
+    # downsample 2× for bandwidth
+    ds = [ch[::2] for ch in samples]
+    return jsonify(data=ds, sr=125)
+
+
+@app.route('/api/user_bands/<int:user_id>')
+def api_user_bands(user_id):
+    row = get_db().execute('SELECT band_powers FROM user WHERE id=?',
+                           (user_id,)).fetchone()
+    if not row or not row['band_powers']:
+        return jsonify(error='no bands'), 404
+    return jsonify(json.loads(row['band_powers']))
+
+
+@app.route('/api/ranking')
+def api_ranking():
+    db   = get_db()
+    rows = db.execute(
+        'SELECT id, nickname, is_solo, embedding FROM user WHERE embedding IS NOT NULL'
+    ).fetchall()
+    embs = {r['id']: np.array(json.loads(r['embedding']), dtype=np.float32) for r in rows}
+    counts = {r['id']: {'nickname': r['nickname'], 'is_solo': bool(r['is_solo']),
+                         'connections': 0} for r in rows}
+    ids = list(embs.keys())
+    for i in range(len(ids)):
+        for j in range(i + 1, len(ids)):
+            if cosine_sim(embs[ids[i]], embs[ids[j]]) >= SIMILARITY_THRESHOLD:
+                counts[ids[i]]['connections'] += 1
+                counts[ids[j]]['connections'] += 1
+    ranking = sorted(counts.values(), key=lambda x: -x['connections'])
+    return jsonify(ranking=ranking)
+
+
+@app.route('/api/brain_twin/<int:user_id>')
+def api_brain_twin(user_id):
+    db  = get_db()
+    me  = db.execute('SELECT embedding FROM user WHERE id=?', (user_id,)).fetchone()
+    if not me or not me['embedding']:
+        return jsonify(error='no embedding'), 404
+    emb_me = np.array(json.loads(me['embedding']), dtype=np.float32)
+    rows   = db.execute(
+        'SELECT id, nickname, is_solo, embedding FROM user WHERE id!=? AND embedding IS NOT NULL',
+        (user_id,)
+    ).fetchall()
+    best, best_sim, best_nick, best_solo = None, -1, None, False
+    for r in rows:
+        sim = cosine_sim(emb_me, np.array(json.loads(r['embedding']), dtype=np.float32))
+        if sim > best_sim:
+            best_sim, best, best_nick, best_solo = sim, r['id'], r['nickname'], bool(r['is_solo'])
+    if best is None:
+        return jsonify(twin=None)
+    return jsonify(twin=dict(id=best, nickname=best_nick, is_solo=best_solo,
+                             score=_sim_to_score(best_sim),
+                             similarity=round(best_sim, 4)))
+
+
+ADMIN_PW = 'neuro2025'
+
+
+@app.route('/admin')
+def admin():
+    if request.args.get('pw') != ADMIN_PW:
+        return render_template('admin.html', auth=False, users=[], total=0)
+    db    = get_db()
+    users = db.execute(
+        '''SELECT id, nickname, is_solo,
+                  CASE WHEN embedding IS NULL THEN 0 ELSE 1 END AS has_emb,
+                  band_powers
+           FROM user ORDER BY id DESC'''
+    ).fetchall()
+    return render_template('admin.html', auth=True, users=users,
+                           total=len(users), pw=ADMIN_PW)
+
+
+@app.route('/admin/delete/<int:user_id>', methods=['POST'])
+def admin_delete(user_id):
+    pw = request.form.get('pw', '')
+    if pw != ADMIN_PW:
+        return redirect(url_for('admin'))
+    db = get_db()
+    db.execute('DELETE FROM user WHERE id=?', (user_id,))
+    db.commit()
+    return redirect(url_for('admin', pw=pw))
+
+
+@app.route('/admin/export')
+def admin_export():
+    if request.args.get('pw') != ADMIN_PW:
+        return 'Unauthorized', 401
+    import io, csv as csv_mod
+    db   = get_db()
+    rows = db.execute('SELECT id, nickname, is_solo, band_powers FROM user WHERE embedding IS NOT NULL').fetchall()
+    out  = io.StringIO()
+    w    = csv_mod.writer(out)
+    w.writerow(['id', 'nickname', 'is_solo', 'delta', 'theta', 'alpha', 'beta', 'gamma'])
+    for r in rows:
+        bands = json.loads(r['band_powers']) if r['band_powers'] else {}
+        w.writerow([r['id'], r['nickname'], r['is_solo'],
+                    bands.get('delta',''), bands.get('theta',''),
+                    bands.get('alpha',''), bands.get('beta',''), bands.get('gamma','')])
+    out.seek(0)
+    from flask import Response
+    return Response(out.getvalue(), mimetype='text/csv',
+                    headers={'Content-Disposition': 'attachment; filename=neuro_randki_export.csv'})
+
+
+@app.route('/api/user_viz/<int:user_id>')
+def api_user_viz(user_id):
+    row = get_db().execute(
+        'SELECT embedding FROM user WHERE id = ?', (user_id,)
+    ).fetchone()
+    if not row or not row['embedding']:
+        return jsonify(error='no embedding'), 404
+    emb = np.array(json.loads(row['embedding']), dtype=np.float32)
+    # Use first 32 values as wave params (freq, amp, phase per wave)
+    # Normalise to [0,1] for JS consumption
+    emb_min, emb_max = float(emb.min()), float(emb.max())
+    span = emb_max - emb_min or 1.0
+    params = ((emb[:32] - emb_min) / span).tolist()
+    return jsonify(params=params)
+
+
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False, use_reloader=False)

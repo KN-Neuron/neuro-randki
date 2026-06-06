@@ -1,2 +1,49 @@
+# Python
 __pycache__/
-neuro_randki.db
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# Virtual envs
+venv/
+.venv/
+env/
+.env/
+
+# Environment / secrets
+.env
+.env.*
+*.secret
+
+# Database (local state)
+*.db
+*.sqlite
+*.sqlite3
+
+# Model weights (large binaries — store in GDrive/DVC/LFS)
+models/*.pth
+models/*.pt
+models/*.onnx
+
+# Logs / temp
+*.log
+
+# Claude Code internals
+.claude/
+
+# Gemini
+GEMINI.md
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
