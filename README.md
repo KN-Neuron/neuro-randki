@@ -3,6 +3,9 @@
 ## Przegląd
 Internetowa aplikacja biometryczna "Love Tester" zbudowana na potrzeby wydarzeń, lodołamaczy (ice-breakers) i integracji. Dwóch użytkowników łączy się za pomocą zestawów EEG, wykonuje zsynchronizowane zadania, a podobieństwo ich fal mózgowych jest oceniane za pomocą modeli "neuroguard", aby wygenerować wynik dopasowania.
 
+<img width="856" height="608" alt="image" src="https://github.com/user-attachments/assets/4b2a3913-f7a3-4f72-bf6d-6387c4f58848" />
+
+
 ## Architektura i Stos Technologiczny
 - **Backend:** Python z Flask
 - **Baza danych:** SQLite (lokalna, oparta na plikach, idealna dla kiosków eventowych)
