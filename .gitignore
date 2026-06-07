@@ -20,6 +20,9 @@ env/
 
 # Database (local state)
 *.db
+
+# Raw EEG recordings (large binary files)
+recordings/
 *.sqlite
 *.sqlite3
 

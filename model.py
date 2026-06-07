@@ -3,6 +3,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+
 class MasterEEGNet(nn.Module):
     def __init__(self, num_channels=4, num_classes=22, embedding_dim=128):
         super().__init__()
@@ -55,24 +56,92 @@ def get_model():
     return _model
 
 
-def get_embedding(signal: np.ndarray) -> np.ndarray:
+# ── Embedding methods ──────────────────────────────────────────────────────────
+
+def embed_neural(signal: np.ndarray) -> np.ndarray:
     """
-    signal: (4, T) numpy array — 4 EEG channels
-    returns: (128,) L2-normalized embedding
+    MasterEEGNet embedding.
+    signal: (4, T) — must already be the 4 channels the model expects.
+    Returns (128,) L2-normalised float32.
     """
     model = get_model()
     x = signal.copy().astype(np.float32)
     for c in range(x.shape[0]):
         x[c] = (x[c] - x[c].mean()) / (x[c].std() + 1e-8)
-    tensor = torch.tensor(x).unsqueeze(0).unsqueeze(0)  # (1, 1, 4, T)
+    tensor = torch.tensor(x).unsqueeze(0).unsqueeze(0)   # (1, 1, 4, T)
     with torch.no_grad():
         emb, _ = model(tensor)
     return emb.numpy().flatten()
 
 
+def embed_handcrafted(signal: np.ndarray, sr: int = 250) -> np.ndarray:
+    """
+    Hand-crafted EEG features: band powers (log) + Hjorth + moments + percentiles.
+    signal: (C, T) — works with any number of channels.
+    Returns (C*13,) L2-normalised float32.
+    """
+    from numpy.fft import rfft, rfftfreq
+    n     = signal.shape[1]
+    freqs = rfftfreq(n, d=1.0 / sr)
+    BANDS = [(0.5, 4), (4, 8), (8, 13), (13, 30), (30, 45)]
+
+    feats = []
+    for ch in range(signal.shape[0]):
+        x   = signal[ch].copy().astype(np.float64)
+        std = x.std() or 1.0
+        x   = (x - x.mean()) / std
+
+        psd = np.abs(rfft(x)) ** 2
+        for lo, hi in BANDS:
+            mask = (freqs >= lo) & (freqs < hi)
+            feats.append(np.log1p(float(psd[mask].mean()) if mask.any() else 1e-6))
+
+        dx, ddx = np.diff(x), np.diff(np.diff(x))
+        v0 = np.var(x)  or 1e-8
+        v1 = np.var(dx) or 1e-8
+        v2 = np.var(ddx)or 1e-8
+        mob  = float(np.sqrt(v1 / v0))
+        comp = float(np.sqrt(v2 / v1) / mob if mob > 1e-8 else 0.0)
+        feats += [mob, comp]
+
+        feats.append(float(std))
+        feats.append(float(np.mean(x ** 3)))
+        feats.append(float(np.mean(x ** 4)) - 3.0)
+
+        p10, p90 = np.percentile(x, 10), np.percentile(x, 90)
+        feats += [float(p90 - p10), float(p10), float(p90)]
+
+    arr = np.array(feats, dtype=np.float32)
+    return arr / (np.linalg.norm(arr) + 1e-8)
+
+
+def embed_hybrid(signal: np.ndarray, sr: int = 250) -> np.ndarray:
+    """
+    Concatenate L2-normalised neural + handcrafted embeddings, re-normalise.
+    """
+    n = embed_neural(signal)
+    h = embed_handcrafted(signal, sr)
+    combined = np.concatenate([n, h])
+    return combined / (np.linalg.norm(combined) + 1e-8)
+
+
+# Active method — set at startup via EMBED_METHOD env var or app config.
+# 'neural' | 'handcrafted' | 'hybrid'
+EMBED_METHOD = 'handcrafted'
+
+def get_embedding(signal: np.ndarray, method: str | None = None) -> np.ndarray:
+    m = (method or EMBED_METHOD).lower()
+    if m == 'neural':
+        return embed_neural(signal)
+    if m == 'hybrid':
+        return embed_hybrid(signal)
+    return embed_handcrafted(signal)
+
+
 def cosine_sim(a: np.ndarray, b: np.ndarray) -> float:
-    denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-8
-    return float(np.dot(a, b) / denom)
+    if a.shape != b.shape:
+        return 0.0   # incompatible methods — treat as unrelated
+    return float(np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-8))
 
 
 SIMILARITY_THRESHOLD = 0.3258

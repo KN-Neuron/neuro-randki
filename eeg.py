@@ -256,7 +256,7 @@ def calibrate_channels(device_name: str,
 #  RECORDING
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _make_cb(user_id: int, n_eeg: int):
+def _make_cb(user_id: int, n_eeg: int, device_name: str):
     def _cb(chunk, chunk_size):
         arr = np.asarray(chunk, dtype=np.float32)
         if arr.ndim == 1:
@@ -293,7 +293,7 @@ def start_recording(user_id: int, device_name: str) -> bool:
 
     if connected and mgr:
         try:
-            mgr.set_callback_chunk(_make_cb(user_id, n_eeg))
+            mgr.set_callback_chunk(_make_cb(user_id, n_eeg, device_name))
             mgr.start_stream()
             print(f'[EEG] Recording: user={user_id} device={device_name} ch={channels}')
             return True
@@ -314,7 +314,7 @@ def stop_recording(user_id: int) -> np.ndarray:
             _sessions[user_id]['active'] = False
             sess_snap = dict(_sessions[user_id])
         else:
-            return _mock_signal()
+            return _mock_signal(user_id)
 
     device_name = sess_snap.get('device', '')
     channels    = sess_snap.get('channels', list(range(NUM_MODEL_CHANNELS)))
@@ -346,7 +346,7 @@ def stop_recording(user_id: int) -> np.ndarray:
         print(f'[EEG] Too few samples ({raw.shape[1]}) → mock')
 
     print(f'[EEG] No data for user {user_id} → mock')
-    return _mock_signal()
+    return _mock_signal(user_id)
 
 
 def get_live_samples(device_name: str, n: int = 250) -> list | None:
@@ -364,9 +364,19 @@ def get_live_samples(device_name: str, n: int = 250) -> list | None:
         return data.tolist()
 
 
-def _mock_signal() -> np.ndarray:
-    T = int(DEFAULT_SR * 60)
-    return np.random.randn(NUM_MODEL_CHANNELS, T).astype(np.float32)
+def _mock_signal(user_id: int = 0) -> np.ndarray:
+    rng = np.random.default_rng(user_id + 42)
+    T = int(DEFAULT_SR * 10)
+    signal = rng.standard_normal((NUM_MODEL_CHANNELS, T)).astype(np.float32)
+    # Shape spectrum so each user has a different dominant band — makes features distinguishable
+    from numpy.fft import rfft, irfft, rfftfreq
+    freqs = rfftfreq(T, 1.0 / DEFAULT_SR)
+    for ch in range(NUM_MODEL_CHANNELS):
+        spec = rfft(signal[ch].astype(np.float64))
+        dominant = 1.0 + float((user_id * 7 + ch * 3) % 40)
+        weights = np.exp(-((freqs - dominant) ** 2) / 25.0) + 0.1
+        signal[ch] = irfft(spec * weights, n=T).astype(np.float32)
+    return signal
 
 
 # ─────────────────────────────────────────────────────────────────────────────

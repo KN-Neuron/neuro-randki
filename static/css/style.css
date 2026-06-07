@@ -2041,6 +2041,36 @@ footer {
     transform: none !important;
 }
 
+.admin-method-box {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.5rem;
+}
+
+.method-btns { display: flex; gap: 0.35rem; }
+
+.method-btn {
+    background: var(--input-bg) !important;
+    border: 1px solid var(--input-border) !important;
+    color: var(--secondary-text) !important;
+    padding: 0.25rem 0.7rem !important;
+    border-radius: 50px !important;
+    font-size: 0.72rem !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    cursor: pointer;
+    box-shadow: none !important;
+    transition: all 0.15s !important;
+    min-width: unset !important;
+}
+.method-btn:hover { border-color: var(--accent-pink) !important; color: var(--accent-pink) !important; transform: none !important; }
+.method-btn.method-active {
+    background: var(--accent-pink) !important;
+    border-color: var(--accent-pink) !important;
+    color: #fff !important;
+}
+
 /* ============================================
    RESPONSIVE — GRAPH
    ============================================ */

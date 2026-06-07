@@ -9,17 +9,27 @@ from flask import (Flask, jsonify, redirect, render_template, request,
 
 from database import get_db, init_db
 import eeg as eeg_mod
-from model import get_embedding, cosine_sim, SIMILARITY_THRESHOLD, compute_band_powers
+import model as model_mod
+from model import cosine_sim, SIMILARITY_THRESHOLD, compute_band_powers
 
 app = Flask(__name__)
 app.config['DATABASE'] = os.path.join(app.root_path, 'neuro_randki.db')
 app.secret_key = 'dev_key_for_neuro_randki'
 
+# ── Embedding method config ────────────────────────────────────────────────────
+# EMBED_METHOD: 'handcrafted' | 'neural' | 'hybrid'
+# NEURAL_CHANNELS: comma-separated channel indices for neural method (e.g. "0,1,2,3")
+_EMBED_METHOD   = os.environ.get('EMBED_METHOD', 'handcrafted')
+_NEURAL_CH_RAW  = os.environ.get('NEURAL_CHANNELS', '0,1,2,3')
+_NEURAL_CHANNELS = [int(c) for c in _NEURAL_CH_RAW.split(',')]
+model_mod.EMBED_METHOD = _EMBED_METHOD
+print(f'[Config] EMBED_METHOD={_EMBED_METHOD}  NEURAL_CHANNELS={_NEURAL_CHANNELS}')
+
 with app.app_context():
     init_db()
 
 # Pre-load model so first request is fast
-threading.Thread(target=get_embedding,
+threading.Thread(target=model_mod.get_embedding,
                  args=(np.zeros((4, 751), dtype=np.float32),),
                  daemon=True).start()
 
@@ -27,15 +37,44 @@ threading.Thread(target=get_embedding,
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def _sim_to_score(sim: float) -> int:
-    return int(100 / (1 + math.exp(-5 * sim)))
+    # Map cosine similarity [-1, 1] → score [0, 100].
+    # Uses a soft curve: negative sim → low score, sim≈1 → ~100.
+    # Centred so sim=0 → 50, sim=THRESHOLD → ~65 (entry level).
+    clamped = max(-1.0, min(1.0, float(sim)))
+    # shift & scale to [0,1] then apply mild power curve
+    t = (clamped + 1.0) / 2.0          # [0, 1]
+    t = t ** 0.7                        # curve: spread out lower values
+    return int(round(t * 100))
+
+
+RECORDINGS_DIR = os.path.join(os.path.dirname(__file__), 'recordings')
+os.makedirs(RECORDINGS_DIR, exist_ok=True)
+
+
+def _signal_for_method(signal: np.ndarray, method: str) -> np.ndarray:
+    if method == 'neural':
+        ch = [c for c in _NEURAL_CHANNELS if c < signal.shape[0]]
+        if len(ch) < 4:
+            ch = list(range(min(4, signal.shape[0])))
+        return signal[ch, :]
+    return signal
 
 
 def _save_embedding(user_id: int, signal: np.ndarray):
-    emb   = get_embedding(signal)
+    method = model_mod.EMBED_METHOD
+
+    # Save raw signal (compressed numpy)
+    sig_path = os.path.join(RECORDINGS_DIR, f'user_{user_id}.npz')
+    np.savez_compressed(sig_path, signal=signal)
+
+    sig_for_model = _signal_for_method(signal, method)
+    emb   = model_mod.get_embedding(sig_for_model, method=method)
     bands = compute_band_powers(signal)
     db    = get_db()
-    db.execute('UPDATE user SET embedding = ?, band_powers = ? WHERE id = ?',
-               (json.dumps(emb.tolist()), json.dumps(bands), user_id))
+    db.execute(
+        'UPDATE user SET embedding=?, band_powers=?, signal_path=? WHERE id=?',
+        (json.dumps(emb.tolist()), json.dumps(bands), sig_path, user_id)
+    )
     db.commit()
     return emb
 
@@ -343,6 +382,44 @@ def api_graph_data():
     return jsonify(nodes=nodes, links=links, threshold=SIMILARITY_THRESHOLD)
 
 
+@app.route('/admin/recompute', methods=['POST'])
+def admin_recompute():
+    """Recompute all embeddings from stored raw signals using current method."""
+    db      = get_db()
+    rows    = db.execute('SELECT id, signal_path FROM user WHERE signal_path IS NOT NULL').fetchall()
+    method  = model_mod.EMBED_METHOD
+    updated = 0
+    for r in rows:
+        try:
+            sig = np.load(r['signal_path'])['signal']
+            sig_for_model = _signal_for_method(sig, method)
+            emb   = model_mod.get_embedding(sig_for_model, method=method)
+            bands = compute_band_powers(sig)
+            db.execute('UPDATE user SET embedding=?, band_powers=? WHERE id=?',
+                       (json.dumps(emb.tolist()), json.dumps(bands), r['id']))
+            updated += 1
+        except Exception as e:
+            print(f'[Recompute] user {r["id"]} failed: {e}')
+    db.commit()
+    return redirect(url_for('admin', msg=f'Przeliczono {updated} embeddingów metodą [{method}]'))
+
+
+@app.route('/api/config/method', methods=['GET', 'POST'])
+def api_config_method():
+    if request.method == 'POST':
+        data   = request.get_json(silent=True) or {}
+        method = data.get('method', '').lower()
+        if method not in ('neural', 'handcrafted', 'hybrid'):
+            return jsonify(error='invalid method'), 400
+        model_mod.EMBED_METHOD = method
+        if 'channels' in data:
+            global _NEURAL_CHANNELS
+            _NEURAL_CHANNELS[:] = [int(c) for c in data['channels']]
+        print(f'[Config] Method changed to {method}, channels={_NEURAL_CHANNELS}')
+        return jsonify(method=method, channels=_NEURAL_CHANNELS)
+    return jsonify(method=model_mod.EMBED_METHOD, channels=_NEURAL_CHANNELS)
+
+
 @app.route('/api/eeg/live')
 def api_eeg_live():
     device  = request.args.get('device', '')
@@ -405,13 +482,8 @@ def api_brain_twin(user_id):
                              similarity=round(best_sim, 4)))
 
 
-ADMIN_PW = 'neuro2025'
-
-
 @app.route('/admin')
 def admin():
-    if request.args.get('pw') != ADMIN_PW:
-        return render_template('admin.html', auth=False, users=[], total=0)
     db    = get_db()
     users = db.execute(
         '''SELECT id, nickname, is_solo,
@@ -420,24 +492,21 @@ def admin():
            FROM user ORDER BY id DESC'''
     ).fetchall()
     return render_template('admin.html', auth=True, users=users,
-                           total=len(users), pw=ADMIN_PW)
+                           total=len(users),
+                           embed_method=model_mod.EMBED_METHOD,
+                           neural_channels=','.join(str(c) for c in _NEURAL_CHANNELS))
 
 
 @app.route('/admin/delete/<int:user_id>', methods=['POST'])
 def admin_delete(user_id):
-    pw = request.form.get('pw', '')
-    if pw != ADMIN_PW:
-        return redirect(url_for('admin'))
     db = get_db()
     db.execute('DELETE FROM user WHERE id=?', (user_id,))
     db.commit()
-    return redirect(url_for('admin', pw=pw))
+    return redirect(url_for('admin'))
 
 
 @app.route('/admin/export')
 def admin_export():
-    if request.args.get('pw') != ADMIN_PW:
-        return 'Unauthorized', 401
     import io, csv as csv_mod
     db   = get_db()
     rows = db.execute('SELECT id, nickname, is_solo, band_powers FROM user WHERE embedding IS NOT NULL').fetchall()

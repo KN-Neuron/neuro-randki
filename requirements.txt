@@ -1,5 +1,9 @@
 flask
-torch
 numpy
-# brainaccess — install from BrainAccess SDK (already installed system-wide)
-# torch CPU: pip install torch --index-url https://download.pytorch.org/whl/cpu
+scipy
+# PyTorch CPU (zainstaluj ręcznie jeśli skrypt tego nie zrobi):
+# pip install torch --index-url https://download.pytorch.org/whl/cpu
+#
+# BrainAccess SDK (instalacja z pakietu producenta):
+# https://brainaccess.io/sdk
+# Bez SDK apka działa w trybie mock (losowy sygnał EEG).

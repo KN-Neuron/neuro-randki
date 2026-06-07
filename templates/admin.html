@@ -3,19 +3,42 @@
 {% block content %}
 <h2 class="animate-fade">Panel Admina</h2>
 
-{% if not auth %}
-<div class="hero-container animate-fade" style="max-width:400px;margin:0 auto;text-align:center;">
-  <p style="color:var(--secondary-text);margin-bottom:1.5rem;">Podaj hasło w URL: <code>/admin?pw=HASŁO</code></p>
-  <form method="get">
-    <input type="password" name="pw" placeholder="hasło..." class="form-input" autofocus>
-    <button type="submit" style="margin-top:1rem;">WEJDŹ</button>
-  </form>
-</div>
-
-{% else %}
 <div class="admin-toolbar animate-slide-1">
   <span class="admin-stat">{{ total }} uczestników z embeddingiem</span>
-  <a href="/admin/export?pw={{ pw }}" class="graph-btn" style="text-decoration:none;">⬇ Eksportuj CSV</a>
+  <a href="/admin/export" class="graph-btn" style="text-decoration:none;">⬇ Eksportuj CSV</a>
+</div>
+
+<!-- Embed method switcher -->
+<div class="admin-method-box animate-slide-2">
+  <span class="admin-stat">Metoda embeddingu:</span>
+  <div class="method-btns" id="method-btns">
+    {% for m in ['handcrafted','neural','hybrid'] %}
+    <button type="button" class="method-btn {% if m == embed_method %}method-active{% endif %}"
+            onclick="setMethod('{{ m }}')">{{ m }}</button>
+    {% endfor %}
+  </div>
+  <span class="admin-stat" style="margin-left:0.5rem;" id="method-note">
+    {% if embed_method == 'neural' %}Kanały: {{ neural_channels }}{% endif %}
+  </span>
+  {% if embed_method == 'neural' %}
+  <input type="text" id="ch-input" class="graph-search-input" style="width:120px;margin-left:0.5rem;"
+         value="{{ neural_channels }}" placeholder="np. 0,1,2,3">
+  <button type="button" class="graph-btn" onclick="setChannels()">Ustaw</button>
+  {% endif %}
+</div>
+<div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+  <span class="admin-stat" style="font-size:0.65rem;">
+    ⚠ Zmiana metody wpływa tylko na NOWE nagrania.
+  </span>
+  <form method="post" action="/admin/recompute"
+        onsubmit="return confirm('Przeliczyć wszystkie embeddingi metodą [{{ embed_method }}]?')">
+    <button type="submit" class="graph-btn" style="font-size:0.7rem;">
+      ↻ Przelicz wszystkie ({{ embed_method }})
+    </button>
+  </form>
+  {% if request.args.get('msg') %}
+  <span style="color:var(--accent-pink);font-size:0.72rem;">{{ request.args.msg }}</span>
+  {% endif %}
 </div>
 
 <div class="admin-table-wrap animate-slide-2">
@@ -33,7 +56,6 @@
         <td>
           <form method="post" action="/admin/delete/{{ u.id }}"
                 onsubmit="return confirm('Usunąć {{ u.nickname }}?')">
-            <input type="hidden" name="pw" value="{{ pw }}">
             <button type="submit" class="admin-del-btn">✕</button>
           </form>
         </td>
@@ -43,9 +65,31 @@
   </table>
 </div>
 
+<script>
+function setMethod(m) {
+  const body = {method: m};
+  const ch = document.getElementById('ch-input');
+  if (ch) body.channels = ch.value.split(',').map(Number);
+  fetch('/api/config/method', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body),
+  }).then(r => r.json()).then(d => {
+    document.querySelectorAll('.method-btn').forEach(b => {
+      b.classList.toggle('method-active', b.textContent.trim() === d.method);
+    });
+    const note = document.getElementById('method-note');
+    if (note) note.textContent = d.method === 'neural' ? 'Kanały: ' + d.channels.join(',') : '';
+  });
+}
+function setChannels() {
+  const ch = document.getElementById('ch-input');
+  setMethod(document.querySelector('.method-active')?.textContent.trim() || 'neural');
+}
+</script>
+
 <div class="graph-footer animate-slide-3">
   <a href="/graph"><button type="button">GRAF</button></a>
   <a href="{{ url_for('register') }}"><button type="button">NOWA GRA</button></a>
 </div>
-{% endif %}
 {% endblock %}
