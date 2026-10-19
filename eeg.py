@@ -32,7 +32,9 @@ _dev_lock = threading.Lock()
 
 # ── per-recording session ─────────────────────────────────────────────────────
 # key: user_id (int)
-# value: {data: list[ndarray], active: bool, device: str, channels: list[int]}
+# value: {data: list[ndarray], active: bool, device: str, channels: list[int],
+#         start: float, chunks: [(arrival time, cumulative samples)],
+#         markers: [{label, t_browser, t_server}]}   (times: time.monotonic)
 _sessions: dict = {}
 _sess_lock = threading.Lock()
 
@@ -264,10 +266,13 @@ def _make_cb(user_id: int, n_eeg: int, device_name: str):
         arr = arr[:n_eeg]
         if arr.size == 0 or arr.shape[1] == 0:
             return
+        now = time.monotonic()
         with _sess_lock:
             sess = _sessions.get(user_id)
             if sess and sess['active']:
                 sess['data'].append(arr.copy())
+                sess['n'] += arr.shape[1]
+                sess['chunks'].append((now, sess['n']))
         with _live_lock:
             _live.setdefault(device_name, []).append(arr.copy())
             while sum(a.shape[1] for a in _live[device_name]) > _LIVE_MAX_SAMPLES:
@@ -289,7 +294,9 @@ def start_recording(user_id: int, device_name: str) -> bool:
 
     with _sess_lock:
         _sessions[user_id] = {'data': [], 'active': True,
-                              'device': device_name, 'channels': channels}
+                              'device': device_name, 'channels': channels,
+                              'sr': dev.get('sr', DEFAULT_SR), 'start': time.monotonic(),
+                              'n': 0, 'chunks': [], 'markers': []}
 
     if connected and mgr:
         try:
@@ -304,17 +311,44 @@ def start_recording(user_id: int, device_name: str) -> bool:
     return False
 
 
+def add_marker(user_id: int, label: str, t_browser: float) -> bool:
+    """Log a stimulus onset: browser timestamp (ms) + server receipt time."""
+    now = time.monotonic()
+    with _sess_lock:
+        sess = _sessions.get(user_id)
+        if not sess or not sess['active']:
+            return False
+        sess['markers'].append({'label': label, 't_browser': float(t_browser), 't_server': now})
+    return True
+
+
 def stop_recording(user_id: int) -> np.ndarray:
     """
     Stop buffering and return (4, T) float32 of the selected EEG channels.
     Falls back to mock data if the session is empty.
     """
+    signal, _ = stop_recording_meta(user_id)
+    return signal if signal is not None else _mock_signal(user_id)
+
+
+def stop_recording_meta(user_id: int) -> tuple[Optional[np.ndarray], dict]:
+    """
+    Like stop_recording, but returns (signal | None, meta). signal is None when
+    there is no usable hardware data (caller decides how to mock). meta holds
+    timing for stimulus markers: {mock, sr, start, end, chunks, markers}.
+    """
+    end = time.monotonic()
     with _sess_lock:
         if user_id in _sessions:
             _sessions[user_id]['active'] = False
             sess_snap = dict(_sessions[user_id])
         else:
-            return _mock_signal(user_id)
+            return None, {'mock': True, 'sr': DEFAULT_SR, 'start': end, 'end': end,
+                          'chunks': [], 'markers': []}
+    meta = {'mock': True, 'sr': sess_snap.get('sr', DEFAULT_SR),
+            'start': sess_snap.get('start', end), 'end': end,
+            'chunks': list(sess_snap.get('chunks', [])),
+            'markers': list(sess_snap.get('markers', []))}
 
     device_name = sess_snap.get('device', '')
     channels    = sess_snap.get('channels', list(range(NUM_MODEL_CHANNELS)))
@@ -342,11 +376,12 @@ def stop_recording(user_id: int) -> np.ndarray:
             valid = list(range(min(NUM_MODEL_CHANNELS, raw.shape[0])))
         print(f'[EEG] Stopped: user={user_id} {raw.shape[1]} samples ch={valid}')
         if raw.shape[1] >= MIN_SAMPLES:
-            return raw[valid, :]
+            meta['mock'] = False
+            return raw[valid, :], meta
         print(f'[EEG] Too few samples ({raw.shape[1]}) → mock')
 
     print(f'[EEG] No data for user {user_id} → mock')
-    return _mock_signal(user_id)
+    return None, meta
 
 
 def get_live_samples(device_name: str, n: int = 250) -> list | None:
@@ -365,6 +400,24 @@ def get_live_samples(device_name: str, n: int = 250) -> list | None:
 
 
 def _mock_signal(user_id: int = 0) -> np.ndarray:
+    import glob, os
+    fif_files = sorted(glob.glob(os.path.join(os.path.dirname(__file__), 'data', '*.fif')))
+    if fif_files:
+        try:
+            import mne
+            fif_path = fif_files[user_id % len(fif_files)]
+            raw = mne.io.read_raw_fif(fif_path, preload=True, verbose=False)
+            picks = [c for c in ['Fp1', 'Fp2', 'O1', 'O2'] if c in raw.ch_names]
+            if len(picks) == NUM_MODEL_CHANNELS:
+                sr = int(raw.info['sfreq'])
+                n_samples = sr * 10
+                max_offset = max(0, raw.n_times - n_samples)
+                offset = (user_id * sr * 15) % (max_offset + 1)
+                data = raw.get_data(picks=picks, start=offset, stop=offset + n_samples).astype(np.float32)
+                return data
+        except Exception:
+            pass
+
     rng = np.random.default_rng(user_id + 42)
     T = int(DEFAULT_SR * 10)
     signal = rng.standard_normal((NUM_MODEL_CHANNELS, T)).astype(np.float32)

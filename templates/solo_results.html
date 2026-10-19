@@ -16,12 +16,27 @@
     </div>
   </div>
 
+  {% if archetype %}
+  <div class="arch-pair animate-slide-1">
+    <div class="arch-card" style="--arch-color: {{ archetype.color }}">
+      <div class="arch-owner">Twój archetyp mózgu</div>
+      <div class="arch-icon">{{ archetype.icon }}</div>
+      <div class="arch-name">{{ archetype.name }}</div>
+      <div class="arch-band">{{ archetype.band }}</div>
+      <div class="arch-headline">{{ archetype.headline }}</div>
+      <div class="arch-desc">{{ archetype.desc }}</div>
+    </div>
+  </div>
+  {% endif %}
+
   <!-- Brain twin card -->
   {% if user_id %}
   <div class="twin-card animate-slide-1" id="twin-card" style="display:none;">
-    <div class="twin-label">🧬 Twój bliźniak mózgowy</div>
+    <div class="twin-label">🧬 Najbliższe fale — top 3</div>
     <div class="twin-name" id="twin-name">—</div>
     <div class="twin-score" id="twin-score"></div>
+    <div class="bond-diagnosis" id="twin-diag"></div>
+    <ul class="twin-top" id="twin-top"></ul>
   </div>
   {% endif %}
 
@@ -42,8 +57,31 @@
     .then(r => r.json())
     .then(d => {
       if (d.twin) {
-        document.getElementById('twin-name').textContent  = d.twin.nickname + (d.twin.is_solo ? ' (solo)' : '');
-        document.getElementById('twin-score').textContent = `Zgodność fal: ${d.twin.score}%`;
+        const t = d.twin;
+        document.getElementById('twin-name').textContent  =
+          `${t.archetype_icon || ''} ${t.nickname}${t.is_solo ? ' (solo)' : ''}`.trim();
+        document.getElementById('twin-score').textContent =
+          `Zgodność fal: ${t.score}%` + (t.bond_type ? ` · ${t.bond_type}` : '');
+        document.getElementById('twin-diag').textContent = t.diagnosis || '';
+        const top = document.getElementById('twin-top');
+        (d.top_candidates || []).slice(1).forEach(c => {
+          const li = document.createElement('li');
+          const name = document.createElement('span');
+          name.textContent = `${c.archetype_icon || ''} ${c.nickname}`;
+          const sc = document.createElement('b');
+          sc.textContent = `${c.score}%`;
+          li.append(name, sc);
+          top.appendChild(li);
+        });
+        const notes = [];
+        if (t.sync != null) notes.push(`🎬 Wspólna reakcja na bodziec: ${t.sync}%`);
+        if (d.me && d.me.stim_weak) notes.push('⚠️ Twój sygnał był słaby — dopasowania orientacyjne.');
+        if (notes.length) {
+          const n = document.createElement('div');
+          n.className = 'weak-signal-note';
+          n.textContent = notes.join(' · ');
+          document.getElementById('twin-card').appendChild(n);
+        }
         document.getElementById('twin-card').style.display = 'block';
       }
     }).catch(() => {});

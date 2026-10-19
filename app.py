@@ -11,6 +11,8 @@ from database import get_db, init_db
 import eeg as eeg_mod
 import model as model_mod
 from model import cosine_sim, SIMILARITY_THRESHOLD, compute_band_powers
+import matching
+import shared_stimulus as stim
 
 app = Flask(__name__)
 app.config['DATABASE'] = os.path.join(app.root_path, 'neuro_randki.db')
@@ -60,23 +62,81 @@ def _signal_for_method(signal: np.ndarray, method: str) -> np.ndarray:
     return signal
 
 
-def _save_embedding(user_id: int, signal: np.ndarray):
+def _save_embedding(user_id: int, signal: np.ndarray, onsets=None, labels=None,
+                    sr: int = stim.SR):
     method = model_mod.EMBED_METHOD
 
-    # Save raw signal (compressed numpy)
+    # Save raw signal (compressed numpy) + stimulus markers for recompute
     sig_path = os.path.join(RECORDINGS_DIR, f'user_{user_id}.npz')
-    np.savez_compressed(sig_path, signal=signal)
+    if onsets is not None and len(onsets):
+        np.savez_compressed(sig_path, signal=signal, onsets=np.asarray(onsets, dtype=np.int64),
+                            labels=np.asarray(labels), sr=sr)
+    else:
+        np.savez_compressed(sig_path, signal=signal)
 
-    sig_for_model = _signal_for_method(signal, method)
-    emb   = model_mod.get_embedding(sig_for_model, method=method)
-    bands = compute_band_powers(signal)
-    db    = get_db()
-    db.execute(
-        'UPDATE user SET embedding=?, band_powers=?, signal_path=? WHERE id=?',
-        (json.dumps(emb.tolist()), json.dumps(bands), sig_path, user_id)
-    )
+    db = get_db()
+    _store_features(db, user_id, signal, onsets, labels, sr)
+    db.execute('UPDATE user SET signal_path=? WHERE id=?', (sig_path, user_id))
     db.commit()
-    return emb
+
+
+def _store_features(db, user_id: int, signal: np.ndarray, onsets=None, labels=None,
+                    sr: int = stim.SR):
+    """Embedding, band powers, archetype and shared-stimulus signature."""
+    method = model_mod.EMBED_METHOD
+    emb   = model_mod.get_embedding(_signal_for_method(signal, method), method=method)
+    bands = compute_band_powers(signal, sr)
+    arch  = matching.get_archetype(bands)
+    sig, quality, n_ep = stim.compute_signature(signal, onsets, labels, sr)
+    if onsets is not None and len(onsets):
+        print(f'[Stimulus] user={user_id} epochs={n_ep} quality='
+              f'{quality if quality is None else round(quality, 2)}')
+    db.execute(
+        '''UPDATE user SET embedding=?, band_powers=?, archetype=?,
+                           stim_signature=?, stim_quality=? WHERE id=?''',
+        (json.dumps(emb.tolist()), json.dumps(bands), arch['code'],
+         json.dumps(np.round(sig, 4).tolist()) if sig is not None else None,
+         quality, user_id)
+    )
+
+
+def _load_recording(path: str):
+    """(signal, onsets | None, labels | None, sr) from a saved .npz."""
+    with np.load(path, allow_pickle=False) as z:
+        if 'onsets' in z.files:
+            return z['signal'], z['onsets'], [str(l) for l in z['labels']], int(z['sr'])
+        return z['signal'], None, None, stim.SR
+
+
+_PROFILE_COLS = 'id, nickname, is_solo, archetype, band_powers, embedding, stim_signature, stim_quality'
+
+
+def _profile(r) -> dict:
+    """DB user row → everything matching.compute_affinity needs."""
+    bands = json.loads(r['band_powers']) if r['band_powers'] else {}
+    return {
+        'id': r['id'],
+        'nickname': r['nickname'],
+        'is_solo': r['is_solo'],
+        'archetype': r['archetype'] or matching.get_archetype(bands)['code'],
+        'band_powers': bands,
+        'embedding': np.array(json.loads(r['embedding']), dtype=np.float32) if r['embedding'] else None,
+        'signature': np.array(json.loads(r['stim_signature']), dtype=np.float32) if r['stim_signature'] else None,
+        'stim_quality': r['stim_quality'],
+    }
+
+
+def _all_profiles(db) -> list[dict]:
+    rows = db.execute(f'SELECT {_PROFILE_COLS} FROM user '
+                      'WHERE embedding IS NOT NULL OR band_powers IS NOT NULL').fetchall()
+    return [_profile(r) for r in rows]
+
+
+def _affinity(p1: dict, p2: dict, sig_mean) -> dict:
+    return matching.compute_affinity(p1['band_powers'], p1['archetype'],
+                                     p2['band_powers'], p2['archetype'],
+                                     p1['embedding'], p2['embedding'],
+                                     p1['signature'], p2['signature'], sig_mean)
 
 
 def _load_embedding(user_id: int) -> np.ndarray | None:
@@ -161,6 +221,9 @@ def waiting():
     mode = flask_session.get('mode', 'paired')
 
     if mode == 'solo':
+        user_id = flask_session.get('solo_user_id')
+        if not user_id:
+            return redirect(url_for('solo'))
         nick   = flask_session.get('solo_nick', 'Gracz')
         device = flask_session.get('solo_device', '')
         return render_template('waiting.html',
@@ -168,6 +231,10 @@ def waiting():
                                device=device, next_url=url_for('task'))
 
     player  = flask_session.get('current_player', 1)
+    user_id = flask_session.get('user1_id') if player == 1 else flask_session.get('user2_id')
+    if not user_id:
+        return redirect(url_for('register'))
+
     nick    = flask_session.get('nick1') if player == 1 else flask_session.get('nick2')
     nick1   = flask_session.get('nick1', 'Gracz 1')
     device  = _player_device(player)
@@ -190,9 +257,13 @@ def task():
                     else flask_session.get('user2_id'))
         next_url = url_for('waiting') if player == 1 else url_for('results')
 
+    if not user_id:
+        return redirect(url_for('register'))
+
     device = _current_device()
     return render_template('task.html', user_id=user_id,
-                           next_url=next_url, device=device)
+                           next_url=next_url, device=device,
+                           protocol=stim.protocol())
 
 
 @app.route('/results')
@@ -202,27 +273,36 @@ def results():
         return redirect(url_for('register'))
 
     db  = get_db()
-    res = db.execute('SELECT score, similarity FROM result WHERE session_id = ?',
+    u1, u2 = flask_session.get('user1_id'), flask_session.get('user2_id')
+
+    row1 = db.execute(f'SELECT {_PROFILE_COLS} FROM user WHERE id=?', (u1,)).fetchone() if u1 else None
+    row2 = db.execute(f'SELECT {_PROFILE_COLS} FROM user WHERE id=?', (u2,)).fetchone() if u2 else None
+    if not row1 or not row2:
+        return redirect(url_for('register'))
+    p1, p2 = _profile(row1), _profile(row2)
+    arch1 = matching.ARCHETYPES.get(p1['archetype'], matching.ARCHETYPES['zen'])
+    arch2 = matching.ARCHETYPES.get(p2['archetype'], matching.ARCHETYPES['focus'])
+
+    res = db.execute('SELECT score, similarity, breakdown FROM result WHERE session_id = ?',
                      (sid,)).fetchone()
-    if res:
-        score, similarity = res['score'], res['similarity']
+
+    if res and res['breakdown']:
+        score = res['score']
+        breakdown = json.loads(res['breakdown'])
     else:
-        u1, u2 = flask_session.get('user1_id'), flask_session.get('user2_id')
-        emb1, emb2 = _load_embedding(u1), _load_embedding(u2)
+        sig_mean = stim.population_mean([p['signature'] for p in _all_profiles(db)])
+        aff = _affinity(p1, p2, sig_mean)
+        score = aff['overall']
+        similarity = aff['similarity']
+        breakdown = aff
 
-        if emb1 is not None and emb2 is not None:
-            similarity = cosine_sim(emb1, emb2)
-            score      = _sim_to_score(similarity)
-        else:
-            import random
-            score, similarity = random.randint(55, 99), None
-
-        db.execute('INSERT INTO result (session_id, score, similarity) VALUES (?, ?, ?)',
-                   (sid, score, similarity))
+        db.execute('DELETE FROM result WHERE session_id = ?', (sid,))
+        db.execute('INSERT INTO result (session_id, score, similarity, breakdown) VALUES (?, ?, ?, ?)',
+                   (sid, score, similarity, json.dumps(breakdown)))
         db.commit()
 
     leaderboard = db.execute(
-        '''SELECT u1.nickname AS nick1, u2.nickname AS nick2, r.score
+        '''SELECT u1.nickname AS nick1, u2.nickname AS nick2, r.score, r.breakdown
            FROM result r
            JOIN session s ON r.session_id = s.id
            JOIN user u1 ON s.user1_id = u1.id
@@ -234,15 +314,33 @@ def results():
                            score=score,
                            nick1=flask_session.get('nick1'),
                            nick2=flask_session.get('nick2'),
+                           u1_id=u1,
+                           u2_id=u2,
+                           arch1=arch1,
+                           arch2=arch2,
+                           breakdown=breakdown,
+                           weak_signal=any(p['signature'] is not None and stim.is_weak(p['stim_quality'])
+                                           for p in (p1, p2)),
                            leaderboard=leaderboard,
                            graph_url=url_for('graph'))
 
 
 @app.route('/solo_results')
 def solo_results():
+    user_id = flask_session.get('solo_user_id')
+    nick    = flask_session.get('solo_nick', 'Gracz')
+    db      = get_db()
+    user_row = db.execute('SELECT nickname, archetype, band_powers FROM user WHERE id=?', (user_id,)).fetchone() if user_id else None
+    arch = None
+    if user_row:
+        bands = json.loads(user_row['band_powers']) if user_row['band_powers'] else {}
+        arch_code = user_row['archetype'] or matching.get_archetype(bands)['code']
+        arch = matching.ARCHETYPES.get(arch_code, matching.ARCHETYPES['zen'])
+
     return render_template('solo_results.html',
-                           nick=flask_session.get('solo_nick', 'Gracz'),
-                           user_id=flask_session.get('solo_user_id'),
+                           nick=nick,
+                           user_id=user_id,
+                           archetype=arch,
                            graph_url=url_for('graph'))
 
 
@@ -327,59 +425,65 @@ def api_eeg_stop():
     if mode == 'paired' and flask_session.get('current_player', 1) == 1:
         flask_session['current_player'] = 2
 
-    signal = eeg_mod.stop_recording(user_id)
-    _save_embedding(user_id, signal)
-    return jsonify(status='done', user_id=user_id)
+    signal, meta = eeg_mod.stop_recording_meta(user_id)
+    sr = int(meta['sr'])
+    onsets, labels = stim.markers_to_samples(meta['markers'], meta['start'], meta['chunks'], sr)
+    if signal is None:
+        # No headset data — demo mode: a real data/*.fif participant's
+        # recording for as many stimuli as were shown (random noise as last resort)
+        sr = stim.SR
+        signal, onsets, labels = stim.mock_session(user_id, len(meta['markers']))
+        if signal is None:
+            signal = eeg_mod._mock_signal(user_id)
+    _save_embedding(user_id, signal, onsets, labels, sr)
+    n_markers = 0 if onsets is None else len(onsets)
+    return jsonify(status='done', user_id=user_id, mock=meta['mock'], markers=n_markers)
+
+
+@app.route('/api/eeg/mark', methods=['POST'])
+def api_eeg_mark():
+    """Stimulus onset marker from the task page (one per stimulus)."""
+    data    = request.get_json(silent=True) or {}
+    user_id = data.get('user_id')
+    label   = data.get('label')
+    t       = data.get('t')
+    if not user_id or label not in stim.COLORS or t is None:
+        return jsonify(error='need user_id, label, t'), 400
+    ok = eeg_mod.add_marker(int(user_id), label, float(t))
+    return jsonify(ok=ok)
 
 
 # ── Graph data API ────────────────────────────────────────────────────────────
 
 @app.route('/api/graph_data')
 def api_graph_data():
-    db   = get_db()
-    rows = db.execute(
-        'SELECT id, nickname, embedding, is_solo FROM user WHERE embedding IS NOT NULL'
-    ).fetchall()
+    db = get_db()
+    nodes_data = _all_profiles(db)
 
-    nodes, embeddings = [], []
-    for r in rows:
-        nodes.append({'id': r['id'], 'nickname': r['nickname'],
-                      'is_solo': bool(r['is_solo']), 'neighbors': []})
-        embeddings.append(np.array(json.loads(r['embedding']), dtype=np.float32))
+    sessions = db.execute('SELECT user1_id, user2_id FROM session').fetchall()
+    session_couples = [{'user1_id': s['user1_id'], 'user2_id': s['user2_id']} for s in sessions]
 
-    links = []
-    # All pairwise similarities — links only above threshold, neighbors always
-    sim_matrix = {}
-    for i in range(len(nodes)):
-        for j in range(i + 1, len(nodes)):
-            sim   = cosine_sim(embeddings[i], embeddings[j])
-            score = _sim_to_score(sim)
-            sim_matrix[(i, j)] = (sim, score)
+    graph = matching.build_curated_graph(nodes_data, session_couples)
+    return jsonify(graph)
 
-            linked = sim >= SIMILARITY_THRESHOLD
-            if linked:
-                links.append({
-                    'source':     nodes[i]['id'],
-                    'target':     nodes[j]['id'],
-                    'similarity': round(sim, 4),
-                    'score':      score,
-                })
 
-            # Bidirectional neighbor entries for ranking panel
-            nodes[i]['neighbors'].append({
-                'id': nodes[j]['id'], 'nickname': nodes[j]['nickname'],
-                'score': score, 'similarity': round(sim, 4), 'linked': linked,
-            })
-            nodes[j]['neighbors'].append({
-                'id': nodes[i]['id'], 'nickname': nodes[i]['nickname'],
-                'score': score, 'similarity': round(sim, 4), 'linked': linked,
-            })
-
-    # Sort each node's neighbors by similarity descending
-    for n in nodes:
-        n['neighbors'].sort(key=lambda x: -x['similarity'])
-
-    return jsonify(nodes=nodes, links=links, threshold=SIMILARITY_THRESHOLD)
+def _refresh_pair_results(db) -> int:
+    """Stored pair results cache scores — recompute them for the current population."""
+    profiles = {p['id']: p for p in _all_profiles(db)}
+    sig_mean = stim.population_mean([p['signature'] for p in profiles.values()])
+    pairs = db.execute('SELECT r.id, s.user1_id, s.user2_id FROM result r '
+                       'JOIN session s ON r.session_id = s.id').fetchall()
+    n = 0
+    for row in pairs:
+        p1, p2 = profiles.get(row['user1_id']), profiles.get(row['user2_id'])
+        if not p1 or not p2:
+            continue
+        aff = _affinity(p1, p2, sig_mean)
+        db.execute('UPDATE result SET score=?, similarity=?, breakdown=? WHERE id=?',
+                   (aff['overall'], aff['similarity'], json.dumps(aff), row['id']))
+        n += 1
+    db.commit()
+    return n
 
 
 @app.route('/admin/recompute', methods=['POST'])
@@ -391,17 +495,14 @@ def admin_recompute():
     updated = 0
     for r in rows:
         try:
-            sig = np.load(r['signal_path'])['signal']
-            sig_for_model = _signal_for_method(sig, method)
-            emb   = model_mod.get_embedding(sig_for_model, method=method)
-            bands = compute_band_powers(sig)
-            db.execute('UPDATE user SET embedding=?, band_powers=? WHERE id=?',
-                       (json.dumps(emb.tolist()), json.dumps(bands), r['id']))
+            sig, onsets, labels, sr = _load_recording(r['signal_path'])
+            _store_features(db, r['id'], sig, onsets, labels, sr)
             updated += 1
         except Exception as e:
             print(f'[Recompute] user {r["id"]} failed: {e}')
     db.commit()
-    return redirect(url_for('admin', msg=f'Przeliczono {updated} embeddingów metodą [{method}]'))
+    pairs = _refresh_pair_results(db)
+    return redirect(url_for('admin', msg=f'Przeliczono {updated} embeddingów metodą [{method}] i {pairs} wyników par'))
 
 
 @app.route('/api/config/method', methods=['GET', 'POST'])
@@ -462,37 +563,73 @@ def api_ranking():
 @app.route('/api/brain_twin/<int:user_id>')
 def api_brain_twin(user_id):
     db  = get_db()
-    me  = db.execute('SELECT embedding FROM user WHERE id=?', (user_id,)).fetchone()
-    if not me or not me['embedding']:
-        return jsonify(error='no embedding'), 404
-    emb_me = np.array(json.loads(me['embedding']), dtype=np.float32)
-    rows   = db.execute(
-        'SELECT id, nickname, is_solo, embedding FROM user WHERE id!=? AND embedding IS NOT NULL',
-        (user_id,)
-    ).fetchall()
-    best, best_sim, best_nick, best_solo = None, -1, None, False
-    for r in rows:
-        sim = cosine_sim(emb_me, np.array(json.loads(r['embedding']), dtype=np.float32))
-        if sim > best_sim:
-            best_sim, best, best_nick, best_solo = sim, r['id'], r['nickname'], bool(r['is_solo'])
-    if best is None:
-        return jsonify(twin=None)
-    return jsonify(twin=dict(id=best, nickname=best_nick, is_solo=best_solo,
-                             score=_sim_to_score(best_sim),
-                             similarity=round(best_sim, 4)))
+    me  = db.execute(f'SELECT {_PROFILE_COLS} FROM user WHERE id=?', (user_id,)).fetchone()
+    if not me:
+        return jsonify(error='user not found'), 404
+
+    p_me = _profile(me)
+    arch_me = matching.ARCHETYPES.get(p_me['archetype'], matching.ARCHETYPES['zen'])
+    others = [p for p in _all_profiles(db) if p['id'] != user_id]
+    sig_mean = stim.population_mean([p_me['signature']] + [p['signature'] for p in others])
+
+    candidates = []
+    for p in others:
+        arch_r = matching.ARCHETYPES.get(p['archetype'], matching.ARCHETYPES['zen'])
+        aff = _affinity(p_me, p, sig_mean)
+        candidates.append({
+            'id': p['id'],
+            'nickname': p['nickname'],
+            'is_solo': bool(p['is_solo']),
+            'archetype': arch_r['code'],
+            'archetype_name': arch_r['name'],
+            'archetype_icon': arch_r['icon'],
+            'archetype_color': arch_r['color'],
+            'score': aff['overall'],
+            'similarity': aff['similarity'],
+            'harmony': aff['harmony'],
+            'energy': aff['energy'],
+            'cognition': aff['cognition'],
+            'sync': aff['sync'],
+            'bond_type': aff['bond_type'],
+            'diagnosis': aff['diagnosis'],
+            'strengths': aff['strengths'],
+        })
+
+    candidates.sort(key=lambda x: -x['score'])
+    best_twin = candidates[0] if candidates else None
+
+    return jsonify({
+        'me': {
+            'nickname': me['nickname'],
+            'archetype': arch_me['code'],
+            'archetype_name': arch_me['name'],
+            'archetype_icon': arch_me['icon'],
+            'headline': arch_me['headline'],
+            'desc': arch_me['desc'],
+            'has_stim': p_me['signature'] is not None,
+            'stim_quality': p_me['stim_quality'],
+            'stim_weak': p_me['signature'] is not None and stim.is_weak(p_me['stim_quality']),
+        },
+        'twin': best_twin,
+        'top_candidates': candidates[:3]
+    })
 
 
 @app.route('/admin')
 def admin():
     db    = get_db()
     users = db.execute(
-        '''SELECT id, nickname, is_solo,
+        '''SELECT id, nickname, is_solo, archetype,
                   CASE WHEN embedding IS NULL THEN 0 ELSE 1 END AS has_emb,
-                  band_powers
+                  band_powers, stim_quality,
+                  CASE WHEN stim_signature IS NULL THEN 0 ELSE 1 END AS has_stim
            FROM user ORDER BY id DESC'''
     ).fetchall()
     return render_template('admin.html', auth=True, users=users,
                            total=len(users),
+                           archetypes=matching.ARCHETYPES,
+                           stim_quality_min=stim.QUALITY_MIN,
+                           stim_protocol=stim.protocol(),
                            embed_method=model_mod.EMBED_METHOD,
                            neural_channels=','.join(str(c) for c in _NEURAL_CHANNELS))
 
@@ -505,19 +642,45 @@ def admin_delete(user_id):
     return redirect(url_for('admin'))
 
 
+@app.route('/admin/seed', methods=['POST'])
+def admin_seed():
+    from seed_data import seed_database
+    seed_database()
+    return redirect(url_for('admin', msg='Załadowano dane uczestników z bazy EEG!'))
+
+
+@app.route('/admin/clear', methods=['POST'])
+def admin_clear():
+    db = get_db()
+    db.execute('DELETE FROM result')
+    db.execute('DELETE FROM session')
+    db.execute('DELETE FROM user')
+    db.commit()
+    import glob
+    for f in glob.glob(os.path.join(RECORDINGS_DIR, 'user_*.npz')):
+        try:
+            os.remove(f)
+        except OSError:
+            pass
+    return redirect(url_for('admin', msg='Wyczyszczono bazę danych i nagrania.'))
+
+
 @app.route('/admin/export')
 def admin_export():
     import io, csv as csv_mod
     db   = get_db()
-    rows = db.execute('SELECT id, nickname, is_solo, band_powers FROM user WHERE embedding IS NOT NULL').fetchall()
+    rows = db.execute('SELECT id, nickname, is_solo, archetype, band_powers, stim_quality '
+                      'FROM user WHERE embedding IS NOT NULL').fetchall()
     out  = io.StringIO()
     w    = csv_mod.writer(out)
-    w.writerow(['id', 'nickname', 'is_solo', 'delta', 'theta', 'alpha', 'beta', 'gamma'])
+    w.writerow(['id', 'nickname', 'is_solo', 'archetype', 'delta', 'theta', 'alpha', 'beta', 'gamma',
+                'stim_quality'])
     for r in rows:
         bands = json.loads(r['band_powers']) if r['band_powers'] else {}
-        w.writerow([r['id'], r['nickname'], r['is_solo'],
+        w.writerow([r['id'], r['nickname'], r['is_solo'], r['archetype'] or '',
                     bands.get('delta',''), bands.get('theta',''),
-                    bands.get('alpha',''), bands.get('beta',''), bands.get('gamma','')])
+                    bands.get('alpha',''), bands.get('beta',''), bands.get('gamma',''),
+                    '' if r['stim_quality'] is None else round(r['stim_quality'], 3)])
     out.seek(0)
     from flask import Response
     return Response(out.getvalue(), mimetype='text/csv',

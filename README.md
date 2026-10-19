@@ -33,6 +33,18 @@
 
 ---
 
+## 🎬 Tryb wspólnego bodźca (główna metoda dopasowania)
+
+Każdy uczestnik ogląda **tę samą** sekwencję kolorów: szary na zmianę z czerwonym, zielonym, niebieskim lub żółtym, każdy bodziec po 3 s, domyślnie 120 bodźców ≈ 6 min. Kolejność jest losowana raz, ze stałym ziarnem. Dla każdej osoby liczymy **podpis reakcji**, czyli uśrednioną odpowiedź mózgu (ERP, 1–20 Hz, −0.2…1.0 s) na każdy kolor. Podobieństwo dwóch osób to korelacja ich podpisów po odjęciu reakcji wspólnej dla całej populacji. W wyniku pary jest to wymiar **🎬 Wspólna reakcja**, który stanowi 70% wyniku ogólnego.
+
+Dlaczego tak, a nie z widma spoczynkowego: na 30 nagraniach z `data/` graf z widma krótkiego nagrania nie powtarzał się między dwoma pomiarami (ρ ≈ 0.1), a w dużej mierze odzwierciedlał dopasowanie headsetu. Graf z podpisów reakcji przy tym protokole powtarza się między dwoma niezależnymi blokami po 6 min z ρ ≈ 0.62. Ta sama osoba jako najbliższa wypada w 33% przypadków (losowo 3%), top-3 pokrywa się w 28% (losowo 10%). Graf nie zależy od amplitudy ani szumu 50 Hz (ρ ≈ 0.02). Ograniczenia: 30 osób, jedna sesja na osobę. Stabilny podpis to cecha osobnicza (m.in. anatomia kory wzrokowej), a nie dowód zgodności charakterów.
+
+Synchronizacja: przeglądarka wysyła znacznik każdego bodźca (`/api/eeg/mark`) z czasem klatki (`performance.now()` w `requestAnimationFrame`). Serwer usuwa przesunięcie zegarów i jitter sieci, a znaczniki mapuje na numery próbek na podstawie czasów nadejścia paczek z headsetu (`shared_stimulus.markers_to_samples`). Jakość podpisu to powtarzalność między połowami prób (split-half r). Poniżej 0.10 wynik jest oznaczany jako orientacyjny. Bez headsetu (tryb MOCK) aplikacja używa prawdziwego nagrania jednej z osób z `data/` z jej własnymi znacznikami.
+
+Operator może przerwać zadanie skrótem **Shift+Q**. Mniej bodźców oznacza mniej wiarygodny podpis.
+
+---
+
 ## 🏗️ Architektura i Stos Technologiczny
 
 - **Backend:** Python 3, Flask
@@ -107,6 +119,8 @@ python app.py
 ### Zmienne Środowiskowe
 - `EMBED_METHOD`: Ustawia domyślną algorytmiczną metodę wyliczania podobieństwa (`handcrafted`, `neural`, `hybrid`).
 - `NEURAL_CHANNELS`: Kanały przekazywane do modelu PyTorch (np. `0,1,2,3`).
+- `STIM_TRIALS`: Liczba bodźców w zadaniu wspólnego bodźca (domyślnie `120` ≈ 6 min). Skrócenie mocno obniża wiarygodność: przy ~2 min ρ ≈ 0.16.
+- `EEG_LATENCY_MS`: Stałe opóźnienie sprzętu (Bluetooth + ekran) w ms, domyślnie `0`. Zmierz raz, np. fotodiodą. Nie wpływa na porównania między osobami nagranymi tym samym headsetem, ale jest potrzebne, żeby ich podpisy pasowały do uczestników demo z `data/`.
 
 ### Dostęp do Panelu Admina (`/admin`)
 Panel administratora umożliwia:
@@ -124,6 +138,9 @@ neuro-randki/
 ├── app.py              # Główny serwer Flask, ścieżki routingu i REST API
 ├── eeg.py              # Moduł obsługi sprzętu BrainAccess EEG, Bluetooth, skanowania i MOCK
 ├── model.py            # Model MasterEEGNet (PyTorch), ekstraktory cech (handcrafted/neural/hybrid)
+├── shared_stimulus.py  # Protokół wspólnego bodźca: sekwencja, synchronizacja znaczników, podpisy reakcji
+├── matching.py         # Archetypy i wynik dopasowania (wspólna reakcja + wymiary pasmowe), graf
+├── seed_data.py        # Uczestnicy demo z nagrań data/*.fif (z protokołem bodźca)
 ├── database.py         # Obsługa SQLite, nawiązywanie połączeń i migracje schematu
 ├── schema.sql          # Schemat tabel bazy danych (user, session, result)
 ├── run.sh              # Automatyczny skrypt konfigurujący środowisko i uruchamiający aplikację

@@ -1,6 +1,7 @@
 flask
 numpy
 scipy
+mne          # wczytywanie nagrań demo z data/*.fif
 # PyTorch CPU (zainstaluj ręcznie jeśli skrypt tego nie zrobi):
 # pip install torch --index-url https://download.pytorch.org/whl/cpu
 #

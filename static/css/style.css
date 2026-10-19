@@ -2087,3 +2087,200 @@ footer {
     .graph-container { height: 320px; }
     .graph-area { min-height: 320px; }
 }
+
+/* ============================================
+   BRAIN ARCHETYPES & MATCH BREAKDOWN
+   ============================================ */
+.legend-arch {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+}
+.legend-solo-outline {
+    border: 2px dashed var(--secondary-text);
+    box-sizing: border-box;
+}
+
+.arch-pair {
+    display: flex;
+    gap: 0.75rem;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 0.75rem auto;
+    max-width: 640px;
+}
+
+.arch-card {
+    flex: 1 1 220px;
+    max-width: 300px;
+    background: var(--card-bg);
+    border: 1.5px solid var(--arch-color, var(--accent-pink));
+    border-radius: 16px;
+    padding: 0.9rem 1.2rem;
+    text-align: center;
+    box-shadow: 0 0 18px color-mix(in srgb, var(--arch-color, #FF47C8) 25%, transparent);
+}
+.arch-card .arch-owner {
+    font-size: 0.7rem;
+    font-family: 'Courier New', Courier, monospace;
+    color: var(--secondary-text);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.arch-card .arch-icon { font-size: 2rem; line-height: 1.2; }
+.arch-card .arch-name {
+    font-family: 'Oxanium', sans-serif;
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--arch-color, var(--accent-pink));
+}
+.arch-card .arch-band {
+    font-size: 0.7rem;
+    font-family: 'Courier New', Courier, monospace;
+    color: var(--secondary-text);
+    margin-bottom: 0.35rem;
+}
+.arch-card .arch-headline { font-weight: 600; font-size: 0.85rem; }
+.arch-card .arch-desc { font-size: 0.78rem; color: var(--secondary-text); margin-top: 0.25rem; }
+
+.match-breakdown {
+    background: var(--card-bg);
+    border-radius: 16px;
+    padding: 1rem 1.25rem;
+    margin: 0.75rem auto;
+    max-width: 640px;
+    box-sizing: border-box;
+    width: 100%;
+}
+.bond-type {
+    font-family: 'Oxanium', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: var(--accent-pink);
+    text-align: center;
+}
+.bond-diagnosis {
+    font-size: 0.85rem;
+    text-align: center;
+    margin: 0.35rem 0 0.8rem;
+}
+.dim-row {
+    display: grid;
+    grid-template-columns: minmax(130px, auto) 1fr 3rem;
+    align-items: center;
+    gap: 0.6rem;
+    font-size: 0.8rem;
+    margin: 0.35rem 0;
+}
+.dim-bar-wrap {
+    height: 8px;
+    border-radius: 4px;
+    background: rgba(127,127,127,0.18);
+    overflow: hidden;
+}
+.dim-bar {
+    height: 100%;
+    border-radius: 4px;
+    background: linear-gradient(90deg, var(--accent-pink), var(--accent-orange));
+    transform-origin: left;
+    animation: dimGrow 1.1s ease-out both;
+}
+.dim-val {
+    text-align: right;
+    font-family: 'Courier New', Courier, monospace;
+    font-weight: 700;
+}
+@keyframes dimGrow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+.strength-tags {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    justify-content: center;
+    margin-top: 0.75rem;
+}
+.strength-tag {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    border: 1px solid var(--accent-pink);
+    color: var(--accent-pink);
+}
+
+.twin-top {
+    list-style: none;
+    padding: 0;
+    margin: 0.6rem 0 0;
+    font-size: 0.78rem;
+    text-align: left;
+}
+.twin-top li {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    border-top: 1px dashed rgba(127,127,127,0.25);
+}
+
+@media (max-width: 480px) {
+    .dim-row { grid-template-columns: 1fr 2.6rem; }
+    .dim-row .dim-bar-wrap { grid-column: 1 / -1; grid-row: 2; }
+}
+
+/* ============================================
+   SHARED STIMULUS TASK
+   ============================================ */
+.stim-intro {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 1.5rem 16px;
+    text-align: left;
+    line-height: 1.5;
+}
+.stim-intro h2 { text-align: center; }
+.stim-intro ul { padding-left: 1.2rem; }
+.stim-intro button { display: block; margin: 1.25rem auto 0; }
+
+.stim-screen {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: none;
+}
+.stim-fixation {
+    font-family: 'Oxanium', sans-serif;
+    font-size: 3rem;
+    font-weight: 700;
+    color: #fff;
+    user-select: none;
+    text-shadow: 0 0 2px rgba(0,0,0,0.35);
+}
+.stim-progress {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 3px;
+    background: rgba(0,0,0,0.15);
+}
+.stim-progress-bar {
+    height: 100%;
+    width: 0;
+    background: rgba(255,255,255,0.55);
+}
+.stim-remaining {
+    position: absolute;
+    right: 12px; bottom: 8px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.6);
+    mix-blend-mode: difference;
+}
+.weak-signal-note {
+    font-size: 0.75rem;
+    color: var(--secondary-text);
+    text-align: center;
+    margin-top: 0.5rem;
+}

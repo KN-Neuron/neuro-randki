@@ -78,9 +78,10 @@ $PYTHON -c "
 import sys; sys.path.insert(0, '.')
 from app import app
 with app.app_context():
-    from database import init_db
+    from database import init_db, get_db
     init_db()
-print('  Baza OK')
+    c = get_db().execute('SELECT count(*) FROM user').fetchone()[0]
+    print(f'  Baza OK ({c} uczestników w bazie)')
 " || warn "Błąd inicjalizacji bazy — kontynuuję."
 
 # ── 6. Zabij ewentualny stary proces ─────────────────────────────────────────
@@ -98,9 +99,10 @@ export EMBED_METHOD="${EMBED_METHOD:-handcrafted}"   # handcrafted | neural | hy
 export NEURAL_CHANNELS="${NEURAL_CHANNELS:-0,1,2,3}" # which 4 ch for neural mode
 
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${GREEN}  🧠  neuro-randki  →  http://127.0.0.1:5000       ${NC}"
-echo -e "${GREEN}  🔧  Admin panel   →  http://127.0.0.1:5000/admin?pw=neuro2025${NC}"
-echo -e "${GREEN}  📊  Metoda:       ${EMBED_METHOD}                 ${NC}"
+echo -e "${GREEN}  🧠  Neuro-Randki  →  http://127.0.0.1:5000       ${NC}"
+echo -e "${GREEN}  🕸️   Graf mózgów   →  http://127.0.0.1:5000/graph ${NC}"
+echo -e "${GREEN}  🔧  Admin panel   →  http://127.0.0.1:5000/admin ${NC}"
+echo -e "${GREEN}  📊  Metoda EEG:   ${EMBED_METHOD}                 ${NC}"
 echo -e "${GREEN}  Ctrl+C żeby zatrzymać                             ${NC}"
 echo -e "${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
