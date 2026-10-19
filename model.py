@@ -149,18 +149,22 @@ SIMILARITY_THRESHOLD = 0.3258
 
 def compute_band_powers(signal: np.ndarray, sr: int = 250) -> dict:
     """signal: (4, T) → relative power per EEG band, averaged across channels."""
-    from numpy.fft import rfft, rfftfreq
+    from scipy.signal import butter, detrend, sosfiltfilt, welch
     n = signal.shape[1]
-    if n < 2:
+    if n < sr:
         return dict(delta=0.2, theta=0.2, alpha=0.2, beta=0.2, gamma=0.2)
-    freqs = rfftfreq(n, d=1.0 / sr)
-    psd   = (np.abs(rfft(signal, axis=1)) ** 2).mean(axis=0)
+    # Raw BrainAccess / .fif data is unfiltered — DC drift would swamp delta
+    x = detrend(np.asarray(signal, dtype=np.float64), axis=1)
+    sos = butter(4, [1.0, 45.0], btype='bandpass', fs=sr, output='sos')
+    x = sosfiltfilt(sos, x, axis=1)
+    freqs, psd = welch(x, fs=sr, nperseg=min(n, 2 * sr), axis=1)
+    psd = psd.mean(axis=0)
 
     def band(lo, hi):
         m = (freqs >= lo) & (freqs < hi)
-        return float(psd[m].mean()) if m.any() else 0.0
+        return float(psd[m].sum()) if m.any() else 0.0
 
-    raw   = dict(delta=band(0.5,4), theta=band(4,8),
-                 alpha=band(8,13),  beta=band(13,30), gamma=band(30,45))
+    raw   = dict(delta=band(1,4), theta=band(4,8),
+                 alpha=band(8,13), beta=band(13,30), gamma=band(30,45))
     total = sum(raw.values()) or 1.0
-    return {k: round(v / total, 4) for k, v in raw.items()}
+    return {k: round(v / total, 6) for k, v in raw.items()}

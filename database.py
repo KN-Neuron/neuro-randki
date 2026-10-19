@@ -29,6 +29,10 @@ def init_db():
         'ALTER TABLE result ADD COLUMN similarity REAL',
         'ALTER TABLE user ADD COLUMN band_powers TEXT',
         'ALTER TABLE user ADD COLUMN signal_path TEXT',
+        'ALTER TABLE user ADD COLUMN archetype TEXT',
+        'ALTER TABLE result ADD COLUMN breakdown TEXT',
+        'ALTER TABLE user ADD COLUMN stim_signature TEXT',
+        'ALTER TABLE user ADD COLUMN stim_quality REAL',
     ]:
         try:
             db.execute(stmt)

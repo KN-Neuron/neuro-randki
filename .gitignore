@@ -20,9 +20,14 @@ env/
 
 # Database (local state)
 *.db
+*.db.bak-*
+recordings.bak-*.tgz
 
 # Raw EEG recordings (large binary files)
 recordings/
+
+# Participant EEG used for demo/validation (430 MB, personal data — keep local)
+data/
 *.sqlite
 *.sqlite3
 

@@ -2,114 +2,115 @@
 
 {% block content %}
 <div class="task-display" id="task-container">
-  <p id="task-text">Inicjalizacja badania...</p>
+  <div class="stim-intro" id="stim-intro">
+    <h2>Wspólny bodziec 🎬</h2>
+    <p>Przez około <b>{{ (protocol.total_sec / 60) | round | int }} minut</b> ekran będzie zmieniał kolory.
+       Każdy uczestnik widzi dokładnie tę samą sekwencję — porównujemy, jak Wasze mózgi na nią reagują.</p>
+    <ul>
+      <li>Patrz cały czas na <b>krzyżyk</b> na środku ekranu.</li>
+      <li>Siedź wygodnie i nieruchomo, rozluźnij szczękę.</li>
+      <li>Mrugaj swobodnie, ale najlepiej nie w momencie zmiany koloru.</li>
+    </ul>
+    <button type="button" id="stim-start">START</button>
+  </div>
+</div>
+
+<div class="stim-screen" id="stim-screen" style="display:none;">
+  <div class="stim-fixation">+</div>
+  <div class="stim-progress"><div class="stim-progress-bar" id="stim-bar"></div></div>
+  <div class="stim-remaining" id="stim-remaining"></div>
 </div>
 
 <div id="eeg-overlay" class="eeg-saving-overlay" style="display:none;">
   <div class="eeg-saving-box">
     <div class="sound-pulse"></div>
-    <p>Zapisuję odcisk mózgu...</p>
+    <p>Liczę Twój podpis reakcji mózgu...</p>
   </div>
 </div>
 
 <script>
-  const wrapper    = document.querySelector('.app-wrapper');
-  const container  = document.getElementById('task-container');
-  const USER_ID    = {{ user_id }};
-  const NEXT_URL   = {{ next_url | tojson }};
-  const DEVICE     = {{ device | tojson }};
+  const wrapper   = document.querySelector('.app-wrapper');
+  const screenEl  = document.getElementById('stim-screen');
+  const fixation  = screenEl.querySelector('.stim-fixation');
+  const bar       = document.getElementById('stim-bar');
+  const remaining = document.getElementById('stim-remaining');
+  const USER_ID   = {{ (user_id or 0) | tojson }};
+  const NEXT_URL  = {{ next_url | tojson }};
+  const DEVICE    = {{ device | tojson }};
+  const PROTOCOL  = {{ protocol | tojson }};
 
   if (wrapper) wrapper.classList.add('is-task');
 
-  const stimuli = [
-    { type: 'color', value: '#ff0000' },
-    { type: 'image', value: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1920&q=80' },
-    { type: 'sound', value: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
-    { type: 'color', value: '#0000ff' },
-    { type: 'sound', value: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
-    { type: 'image', value: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=1920&q=80' },
-    { type: 'color', value: '#00ff00' }
-  ];
+  const post = (url, body, keepalive = false) => fetch(url, {
+    method: 'POST', keepalive,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
-  let idx = 0;
-  let currentAudio = null;
+  let finished = false;
 
-  function stopAudio() {
-    if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  async function finishTask() {
+    if (finished) return;
+    finished = true;
+    screenEl.style.display = 'none';
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    if (wrapper) wrapper.classList.remove('is-task');
+    document.getElementById('eeg-overlay').style.display = 'flex';
+    await post('/api/eeg/stop', { user_id: USER_ID, device: DEVICE }).catch(() => {});
+    window.location.href = NEXT_URL;
   }
 
-  function showStimulus() {
-    const s = stimuli[idx];
-    container.innerHTML = '';
-    container.style.backgroundColor = '#000';
-    stopAudio();
+  function showStimulus(label) {
+    screenEl.style.backgroundColor = PROTOCOL.colors[label];
+    // Keep the cross visible on every background
+    fixation.style.color = (label === 'yellow') ? '#000' : '#fff';
+    // rAF runs right before the frame that shows the new colour is painted —
+    // that timestamp is the onset sent to the server
+    requestAnimationFrame(() => {
+      post('/api/eeg/mark', { user_id: USER_ID, label, t: performance.now() }, true).catch(() => {});
+    });
+  }
 
-    if (s.type === 'color') {
-      const d = document.createElement('div');
-      d.className = 'stimulus-color';
-      d.style.backgroundColor = s.value;
-      container.appendChild(d);
-    } else if (s.type === 'image') {
-      const img = document.createElement('img');
-      img.src = s.value;
-      img.className = 'stimulus-image';
-      container.appendChild(img);
-    } else if (s.type === 'sound') {
-      const d = document.createElement('div');
-      d.className = 'stimulus-sound';
-      d.innerHTML = '<div class="sound-pulse"></div>';
-      container.appendChild(d);
-      currentAudio = new Audio(s.value);
-      currentAudio.play().catch(() => {});
-    }
+  function runSequence() {
+    const seq = PROTOCOL.sequence, dur = PROTOCOL.stim_ms;
+    const t0 = performance.now();
+    let i = 0;
+    (function tick() {
+      if (finished) return;
+      if (i >= seq.length) { finishTask(); return; }
+      showStimulus(seq[i]);
+      bar.style.width = `${(100 * (i + 1) / seq.length).toFixed(1)}%`;
+      const left = Math.ceil((seq.length - i) * dur / 1000);
+      remaining.textContent = `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`;
+      i++;
+      // Schedule against the start time so timer drift never accumulates
+      setTimeout(tick, Math.max(0, t0 + i * dur - performance.now()));
+    })();
   }
 
   function countdown(n, onDone) {
-    if (n === 3) stopAudio();
     if (n > 0) {
-      container.style.backgroundColor = '#000';
-      container.innerHTML = `<div class="countdown">${n}</div>`;
+      fixation.textContent = n;
       setTimeout(() => countdown(n - 1, onDone), 1000);
     } else {
+      fixation.textContent = '+';
       onDone();
     }
   }
 
-  async function finishTask() {
-    stopAudio();
-    if (wrapper) wrapper.classList.remove('is-task');
+  document.getElementById('stim-start').addEventListener('click', async () => {
+    document.getElementById('stim-intro').style.display = 'none';
+    screenEl.style.backgroundColor = PROTOCOL.colors.gray;
+    screenEl.style.display = 'flex';
+    screenEl.requestFullscreen?.().catch(() => {});
+    await post('/api/eeg/start', { user_id: USER_ID, device: DEVICE }).catch(() => {});
+    countdown(3, runSequence);
+  });
 
-    // Show saving overlay
-    document.getElementById('eeg-overlay').style.display = 'flex';
-
-    await fetch('/api/eeg/stop', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: USER_ID, device: DEVICE }),
-    }).catch(() => {});
-
-    window.location.href = NEXT_URL;
-  }
-
-  function runSequence() {
-    showStimulus();
-    const dur = stimuli[idx].type === 'color' ? 5000 : 10000;
-    setTimeout(() => {
-      if (idx === stimuli.length - 1) {
-        finishTask();
-      } else {
-        countdown(3, () => { idx++; runSequence(); });
-      }
-    }, dur);
-  }
-
-  // Start EEG recording, then begin stimuli after short delay
-  fetch('/api/eeg/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: USER_ID, device: DEVICE }),
-  }).catch(() => {});
-
-  countdown(3, () => runSequence());
+  // Operator escape hatch: Shift+Q ends early (fewer trials → noisier signature).
+  // Not Esc — in fullscreen the browser swallows it to leave fullscreen.
+  document.addEventListener('keydown', e => {
+    if (e.shiftKey && e.key.toLowerCase() === 'q' && screenEl.style.display !== 'none') finishTask();
+  });
 </script>
 {% endblock %}

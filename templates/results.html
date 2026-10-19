@@ -12,6 +12,7 @@
 
     <div class="results-info animate-fade">
         <div class="pair-names">{{ nick1 }} &amp; {{ nick2 }}</div>
+        {% if not breakdown %}
         <div class="pair-description">
             {% if score > 80 %}
                 Idealna para. Wasze fale mózgowe nadają na tych samych częstotliwościach.
@@ -21,7 +22,54 @@
                 Może być lepiej. Spróbujcie skupić się bardziej na sobie nawzajem.
             {% endif %}
         </div>
+        {% endif %}
     </div>
+
+    {% if arch1 and arch2 %}
+    <div class="arch-pair animate-slide-1">
+        {% for who, a in [(nick1, arch1), (nick2, arch2)] %}
+        <div class="arch-card" style="--arch-color: {{ a.color }}">
+            <div class="arch-owner">{{ who }}</div>
+            <div class="arch-icon">{{ a.icon }}</div>
+            <div class="arch-name">{{ a.name }}</div>
+            <div class="arch-band">{{ a.band }}</div>
+            <div class="arch-headline">{{ a.headline }}</div>
+            <div class="arch-desc">{{ a.desc }}</div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if breakdown %}
+    <div class="match-breakdown animate-slide-1">
+        <div class="bond-type">{{ breakdown.bond_type }}</div>
+        <div class="bond-diagnosis">{{ breakdown.diagnosis }}</div>
+        {% set dims = [('💞 Harmonia emocjonalna', breakdown.harmony),
+                       ('⚡ Dynamika i energia', breakdown.energy),
+                       ('🧠 Styl myślenia', breakdown.cognition)] %}
+        {% if breakdown.sync is not none %}
+        {% set dims = [('🎬 Wspólna reakcja na bodziec', breakdown.sync)] + dims %}
+        {% endif %}
+        {% for label, val in dims %}
+        <div class="dim-row">
+            <span>{{ label }}</span>
+            <div class="dim-bar-wrap"><div class="dim-bar" style="width: {{ val }}%"></div></div>
+            <span class="dim-val">{{ val }}%</span>
+        </div>
+        {% endfor %}
+        {% if breakdown.sync is not none %}
+        <div class="weak-signal-note">🎬 Wspólna reakcja = jak podobnie Wasze mózgi odpowiadały na tę samą sekwencję kolorów (70% wyniku).</div>
+        {% endif %}
+        {% if weak_signal %}
+        <div class="weak-signal-note">⚠️ Sygnał EEG u jednej z osób był słaby — wynik orientacyjny.</div>
+        {% endif %}
+        {% if breakdown.strengths %}
+        <div class="strength-tags">
+            {% for st in breakdown.strengths %}<span class="strength-tag">✓ {{ st }}</span>{% endfor %}
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
 
     <!-- Leaderboard Section -->
     <div class="leaderboard-container animate-slide-1">
